@@ -10,7 +10,9 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 
 pub mod status;
 pub mod util;
+pub mod faster_value;
 use self::util::*;
+use self::faster_value::FasterValue;
 
 extern fn read_callback(sender: *mut libc::c_void, value: u64, status: u32) {
     let boxed_sender = unsafe {Box::from_raw(sender as *mut Sender<u64>)};
@@ -36,6 +38,14 @@ impl FasterKv {
             ft
         };
         Ok(FasterKv { faster_t: faster_t, storage_dir: saved_dir })
+    }
+
+    pub fn upsert_new<T: FasterValue<T>>(&self, key: u64, value: T) -> u8 {
+        let to_be = T::upsert(value);
+        let or_not = to_be as *mut libc::c_void;
+        unsafe {
+            ffi::faster_upsert_new(self.faster_t, key, or_not)
+        }
     }
 
     pub fn upsert(&self, key: u64, value: u64) -> u8 {
@@ -283,6 +293,27 @@ mod tests {
             let (res, recv) = store.read(key);
             assert!(res == status::OK);
             assert!(recv.recv().unwrap() == modification);
+
+            match store.clean_storage() {
+                Ok(()) => assert!(true),
+                Err(_err) => assert!(false)
+            }
+        }
+    }
+
+    #[test]
+    fn faster_upsert_new() {
+        if let Ok(store) = FasterKv::new(TABLE_SIZE, LOG_SIZE, String::from("storage5")) {
+            let key: u64 = 1;
+            let value: u64 = 1000;
+            let modification: u64 = 100;
+
+            let upsert = store.upsert_new(key, value);
+            assert!(upsert == status::OK || upsert == status::PENDING);
+
+            let (res, recv) = store.read(key);
+            assert!(res == status::OK);
+            assert!(recv.recv().unwrap() == value);
 
             match store.clean_storage() {
                 Ok(()) => assert!(true),

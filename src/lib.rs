@@ -40,8 +40,8 @@ impl FasterKv {
         Ok(FasterKv { faster_t: faster_t, storage_dir: saved_dir })
     }
 
-    pub fn upsert_new<T: FasterValue<T>>(&self, key: u64, value: T) -> u8 {
-        let to_be = T::upsert(value);
+    pub fn upsert_new<T: FasterValue<T> + Copy>(&self, key: u64, value: T) -> u8 {
+        let to_be = &value as *const T;//T::upsert(value);
         let or_not = to_be as *mut libc::c_void;
         unsafe {
             ffi::faster_upsert_new(self.faster_t, key, or_not)
@@ -59,6 +59,15 @@ impl FasterKv {
         let sender_ptr: *mut Sender<u64> = Box::into_raw(Box::new(sender));
         let status = unsafe {
             ffi::faster_read(self.faster_t, key, Some(read_callback), sender_ptr as *mut libc::c_void)
+        };
+        (status, receiver)
+    }
+
+    pub fn read_new<T: FasterValue<T> + Copy>(&self, key: u64) -> (u8, Receiver<T>) {
+        let (sender, receiver) = channel();
+        let sender_ptr: *mut Sender<T> = Box::into_raw(Box::new(sender));
+        let status = unsafe {
+            ffi::faster_read_new(self.faster_t, key, Some(T::read_callback), sender_ptr as *mut libc::c_void)
         };
         (status, receiver)
     }
@@ -311,7 +320,11 @@ mod tests {
             let upsert = store.upsert_new(key, value);
             assert!(upsert == status::OK || upsert == status::PENDING);
 
-            let (res, recv) = store.read(key);
+            let (res, recv): (u8, Receiver<u64>) = store.read_new(key);
+            assert!(res == status::OK);
+            assert!(recv.recv().unwrap() == value);
+
+            let (res, recv): (u8, Receiver<u64>) = store.read_new(key);
             assert!(res == status::OK);
             assert!(recv.recv().unwrap() == value);
 

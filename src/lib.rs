@@ -1,3 +1,4 @@
+extern crate bincode;
 extern crate libc;
 extern crate libfaster_sys as ffi;
 
@@ -13,6 +14,7 @@ pub mod util;
 pub mod faster_value;
 use self::util::*;
 use self::faster_value::FasterValue;
+use serde::Serialize;
 
 extern fn read_callback(sender: *mut libc::c_void, value: u64, status: u32) {
     let boxed_sender = unsafe {Box::from_raw(sender as *mut Sender<u64>)};
@@ -51,6 +53,13 @@ impl FasterKv {
     pub fn upsert(&self, key: u64, value: u64) -> u8 {
         unsafe {
             ffi::faster_upsert(self.faster_t, key, value)
+        }
+    }
+
+    pub fn upsert_binary<T: Serialize>(&self, key: u64, value: &T) -> u8 {
+        let mut encoded = bincode::serialize(value).unwrap();
+        unsafe {
+            ffi::faster_upsert_binary(self.faster_t, key, encoded.as_mut_ptr(), encoded.len() as u64)
         }
     }
 
@@ -307,6 +316,28 @@ mod tests {
                 Ok(()) => assert!(true),
                 Err(_err) => assert!(false)
             }
+        }
+    }
+
+    #[test]
+    fn faster_arbitrary() {
+        if let Ok(store) = FasterKv::new(TABLE_SIZE, LOG_SIZE, String::from("storage")) {
+            let key: u64 = 1;
+            let value1 = String::from("A value I tell you");
+            let value2: u64 = 1000;
+
+            let upsert = store.upsert_binary(key, &value1);
+            assert!((upsert == status::OK || upsert == status::PENDING) == true);
+
+            let upsert = store.upsert_binary(key, &value2);
+            assert!((upsert == status::OK || upsert == status::PENDING) == true);
+
+            match store.clean_storage() {
+                Ok(()) => assert!(true),
+                Err(_err) => assert!(false)
+            }
+        } else {
+            assert!(false)
         }
     }
 

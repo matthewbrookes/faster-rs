@@ -15,12 +15,24 @@ pub mod faster_value;
 use self::util::*;
 use self::faster_value::FasterValue;
 use serde::Serialize;
+use bincode::deserialize;
 
 extern fn read_callback(sender: *mut libc::c_void, value: u64, status: u32) {
     let boxed_sender = unsafe {Box::from_raw(sender as *mut Sender<u64>)};
     let sender = *boxed_sender;
     if status == status::OK.into() {
         sender.send(value).unwrap();
+    }
+}
+
+extern fn read_callback_binary(sender: *mut libc::c_void, value: *mut u8, length: u64, status: u32) {
+    let boxed_sender = unsafe {Box::from_raw(sender as *mut Sender<String>)};
+    let sender = *boxed_sender;
+    let slice = unsafe {
+        deserialize(std::slice::from_raw_parts_mut(value, length as usize)).unwrap()
+    };
+    if status == status::OK.into() {
+        sender.send(slice).unwrap();
     }
 }
 
@@ -77,6 +89,15 @@ impl FasterKv {
         let sender_ptr: *mut Sender<T> = Box::into_raw(Box::new(sender));
         let status = unsafe {
             ffi::faster_read_new(self.faster_t, key, Some(T::read_callback), sender_ptr as *mut libc::c_void)
+        };
+        (status, receiver)
+    }
+
+    pub fn read_binary<T: Serialize>(&self, key: u64) -> (u8, Receiver<T>) {
+        let (sender, receiver) = channel();
+        let sender_ptr: *mut Sender<T> = Box::into_raw(Box::new(sender));
+        let status = unsafe {
+            ffi::faster_read_binary(self.faster_t, key, Some(read_callback_binary), sender_ptr as *mut libc::c_void)
         };
         (status, receiver)
     }
@@ -324,13 +345,13 @@ mod tests {
         if let Ok(store) = FasterKv::new(TABLE_SIZE, LOG_SIZE, String::from("storage")) {
             let key: u64 = 1;
             let value1 = String::from("A value I tell you");
-            let value2: u64 = 1000;
 
             let upsert = store.upsert_binary(key, &value1);
             assert!((upsert == status::OK || upsert == status::PENDING) == true);
 
-            let upsert = store.upsert_binary(key, &value2);
-            assert!((upsert == status::OK || upsert == status::PENDING) == true);
+            let (res, recv): (u8, Receiver<String>) = store.read_binary(key);
+            assert_eq!(res, status::OK);
+            assert_eq!(recv.recv().unwrap(), value1);
 
             match store.clean_storage() {
                 Ok(()) => assert!(true),

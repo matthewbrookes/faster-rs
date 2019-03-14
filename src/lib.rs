@@ -12,27 +12,17 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 pub mod status;
 pub mod util;
 pub mod faster_value;
+pub mod faster_value_binary;
 use self::util::*;
 use self::faster_value::FasterValue;
-use serde::Serialize;
-use bincode::deserialize;
+use self::faster_value_binary::FasterValueBinary;
+use serde::{Serialize, Deserialize};
 
 extern fn read_callback(sender: *mut libc::c_void, value: u64, status: u32) {
     let boxed_sender = unsafe {Box::from_raw(sender as *mut Sender<u64>)};
     let sender = *boxed_sender;
     if status == status::OK.into() {
         sender.send(value).unwrap();
-    }
-}
-
-extern fn read_callback_binary(sender: *mut libc::c_void, value: *mut u8, length: u64, status: u32) {
-    let boxed_sender = unsafe {Box::from_raw(sender as *mut Sender<String>)};
-    let sender = *boxed_sender;
-    let slice = unsafe {
-        deserialize(std::slice::from_raw_parts_mut(value, length as usize)).unwrap()
-    };
-    if status == status::OK.into() {
-        sender.send(slice).unwrap();
     }
 }
 
@@ -93,11 +83,11 @@ impl FasterKv {
         (status, receiver)
     }
 
-    pub fn read_binary<T: Serialize>(&self, key: u64) -> (u8, Receiver<T>) {
+    pub fn read_binary<'a, T: FasterValueBinary<'a, T> + Deserialize<'a>>(&'a self, key: u64) -> (u8, Receiver<T>) {
         let (sender, receiver) = channel();
         let sender_ptr: *mut Sender<T> = Box::into_raw(Box::new(sender));
         let status = unsafe {
-            ffi::faster_read_binary(self.faster_t, key, Some(read_callback_binary), sender_ptr as *mut libc::c_void)
+            ffi::faster_read_binary(self.faster_t, key, Some(T::read_callback_binary), sender_ptr as *mut libc::c_void)
         };
         (status, receiver)
     }
@@ -345,6 +335,7 @@ mod tests {
         if let Ok(store) = FasterKv::new(TABLE_SIZE, LOG_SIZE, String::from("storage")) {
             let key: u64 = 1;
             let value1 = String::from("A value I tell you");
+            let value2: u64 = 1000;
 
             let upsert = store.upsert_binary(key, &value1);
             assert!((upsert == status::OK || upsert == status::PENDING) == true);
@@ -352,6 +343,20 @@ mod tests {
             let (res, recv): (u8, Receiver<String>) = store.read_binary(key);
             assert_eq!(res, status::OK);
             assert_eq!(recv.recv().unwrap(), value1);
+
+            let (res, recv): (u8, Receiver<String>) = store.read_binary(key);
+            assert_eq!(res, status::OK);
+            assert_eq!(recv.recv().unwrap(), value1);
+
+            let upsert2 = store.upsert_binary(key, &value2);
+            assert!((upsert2 == status::OK || upsert2 == status::PENDING) == true);
+            let (res, recv): (u8, Receiver<u64>) = store.read_binary(key);
+            assert_eq!(res, status::OK);
+            assert_eq!(recv.recv().unwrap(), value2);
+
+            let (res, recv): (u8, Receiver<u64>) = store.read_binary(key);
+            assert_eq!(res, status::OK);
+            assert_eq!(recv.recv().unwrap(), value2);
 
             match store.clean_storage() {
                 Ok(()) => assert!(true),
@@ -362,12 +367,12 @@ mod tests {
         }
     }
 
+
     #[test]
     fn faster_upsert_new() {
         if let Ok(store) = FasterKv::new(TABLE_SIZE, LOG_SIZE, String::from("storage5")) {
             let key: u64 = 1;
             let value: u64 = 1000;
-            let modification: u64 = 100;
 
             let upsert = store.upsert_new(key, value);
             assert!(upsert == status::OK || upsert == status::PENDING);

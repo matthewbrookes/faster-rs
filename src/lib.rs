@@ -7,7 +7,7 @@ pub mod util;
 pub mod faster_value;
 
 use crate::util::*;
-use crate::faster_value::FasterValue;
+pub use crate::faster_value::FasterValue;
 
 use serde::{Serialize, Deserialize};
 use std::ffi::CStr;

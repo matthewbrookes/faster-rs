@@ -83,7 +83,7 @@ impl FasterKv {
         (status, receiver)
     }
 
-    pub fn read_binary<'a, T: FasterValueBinary<'a, T> + Deserialize<'a>>(&'a self, key: u64) -> (u8, Receiver<T>) {
+    pub fn read_binary<'a, T: FasterValueBinary<'a, T> + Deserialize<'a> + Serialize>(&'a self, key: u64) -> (u8, Receiver<T>) {
         let (sender, receiver) = channel();
         let sender_ptr: *mut Sender<T> = Box::into_raw(Box::new(sender));
         let status = unsafe {
@@ -95,6 +95,13 @@ impl FasterKv {
     pub fn rmw(&self, key: u64, value: u64) -> u8 {
         unsafe {
             ffi::faster_rmw(self.faster_t, key, value)
+        }
+    }
+
+    pub fn rmw_binary<'a, T: FasterValueBinary<'a, T> + Deserialize<'a> + Serialize>(&'a self, key: u64, value: &T) -> u8 {
+        let mut encoded = bincode::serialize(value).unwrap();
+        unsafe {
+            ffi::faster_rmw_binary(self.faster_t, key, encoded.as_mut_ptr(), encoded.len() as u64, Some(T::rmw_callback_non_atomic))
         }
     }
 
@@ -350,6 +357,7 @@ mod tests {
 
             let upsert2 = store.upsert_binary(key, &value2);
             assert!((upsert2 == status::OK || upsert2 == status::PENDING) == true);
+
             let (res, recv): (u8, Receiver<u64>) = store.read_binary(key);
             assert_eq!(res, status::OK);
             assert_eq!(recv.recv().unwrap(), value2);
@@ -357,6 +365,13 @@ mod tests {
             let (res, recv): (u8, Receiver<u64>) = store.read_binary(key);
             assert_eq!(res, status::OK);
             assert_eq!(recv.recv().unwrap(), value2);
+
+            let rmw = store.rmw_binary(key, &value2);
+            assert!((upsert2 == status::OK || upsert2 == status::PENDING) == true);
+
+            let (res, recv): (u8, Receiver<u64>) = store.read_binary(key);
+            assert_eq!(res, status::OK);
+            assert_eq!(recv.recv().unwrap(), value2 + value2);
 
             match store.clean_storage() {
                 Ok(()) => assert!(true),

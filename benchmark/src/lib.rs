@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const kInitCount: u64 = 250000000;
 const kTxnCount: u64 = 1000000000;
@@ -14,7 +14,7 @@ const kChunkSize: u64 = 3200;
 const kRefreshInterval: u64 = 64;
 const kCompletePendingInterval: u64 = 1600;
 
-const kNanosPerSecond: u64 = 1000000000;
+const K_NANOS_PER_SECOND: usize = 1000000000;
 
 const kMaxKey: u64 = 268435456;
 const kRunSeconds: u64 = 360;
@@ -107,7 +107,7 @@ fn thread_benchmark<F>(
     keys: &Arc<Vec<u64>>,
     idx: &Arc<AtomicUsize>,
     op_allocator: F,
-) -> (usize, usize, usize)
+) -> (usize, usize, usize, u128)
 where
     F: Fn(usize) -> Operation,
 {
@@ -145,7 +145,7 @@ where
     }
     store.complete_pending(true);
     store.stop_session();
-    let end = Instant::now();
+    let duration = Instant::now().duration_since(start);
 
     println!(
         "Thread {} completed {} reads, {} upserts and {} rmws in {}ms",
@@ -153,23 +153,20 @@ where
         reads,
         upserts,
         rmws,
-        end.duration_since(start).as_millis()
+        duration.as_millis()
     );
 
-    (reads, upserts, rmws)
+    (reads, upserts, rmws, duration.as_nanos())
 }
 
-pub fn run_benchmark<F>(
+pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
     store: &Arc<FasterKv>,
     keys: &Arc<Vec<u64>>,
     num_threads: u8,
     op_allocator: F,
-) -> (usize, usize, usize)
-where
-    F: Fn(usize) -> Operation + Send + Copy +'static,
-{
+) {
     let shared_idx = Arc::new(AtomicUsize::new(0));
-    let mut total_counts = (0, 0, 0);
+    let mut total_counts = (0, 0, 0, 0);
 
     let mut threads = vec![];
     for thread_id in 0..num_threads {
@@ -180,11 +177,29 @@ where
             thread_benchmark(&store, thread_id, &keys, &shared_idx, op_allocator)
         }))
     }
+    let mut last_checkpoint = Instant::now();
+    while shared_idx.load(Ordering::Relaxed) < keys.len() {
+        if Instant::now().duration_since(last_checkpoint) > Duration::from_secs(kCheckpointSeconds)
+        {
+            store.checkpoint();
+            last_checkpoint = Instant::now();
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
     for t in threads {
-        let (reads, upserts, rmws) = t.join().expect("Something went wrong in a thread");
+        let (reads, upserts, rmws, duration) = t.join().expect("Something went wrong in a thread");
         total_counts.0 += reads;
         total_counts.1 += upserts;
         total_counts.2 += rmws;
+        total_counts.3 += duration;
     }
-    total_counts
+
+    println!(
+        "Finished benchmark: {} reads, {} writes, {} rmws. {} ops/second/thread",
+        total_counts.0,
+        total_counts.1,
+        total_counts.2,
+        (total_counts.0 + total_counts.1 + total_counts.2)
+            / (total_counts.3 as usize / K_NANOS_PER_SECOND)
+    )
 }

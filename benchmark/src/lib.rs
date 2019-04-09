@@ -1,8 +1,11 @@
+extern crate regex;
+
 use faster_kvs::FasterKv;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use regex::Regex;
 
 const kInitCount: u64 = 250000000;
 const kTxnCount: u64 = 1000000000;
@@ -20,18 +23,13 @@ pub fn process_ycsb(input_file: &str, output_file: &str) {
     let input = File::open(input_file).expect("Unable to open input file for reading");
     let mut output = File::create(output_file).expect("Unable to create output file");
 
-    let prefix = "usertable user";
+    let re = Regex::new(r".*usertable user(\d+).*").unwrap();
 
     let reader = BufReader::new(input);
     for line in reader.lines().map(|l| l.unwrap()) {
-        match line.find(prefix) {
-            None => {},
-            Some(start) => {
-                let key_start = start + prefix.len();
-                let key = &line[key_start..key_start + 14];
-                output.write(key.as_bytes()).unwrap();
-                output.write(b"\n").unwrap();
-            },
+        for cap in re.captures_iter(&line) {
+            output.write(&cap[1].as_bytes()).unwrap();
+            output.write(b"\n").unwrap();
         }
     }
 }

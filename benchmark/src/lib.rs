@@ -4,21 +4,15 @@ use faster_kvs::FasterKv;
 use regex::Regex;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-const kInitCount: u64 = 250000000;
-const kTxnCount: u64 = 1000000000;
-const kChunkSize: u64 = 3200;
-const kRefreshInterval: u64 = 64;
-const kCompletePendingInterval: u64 = 1600;
+const K_CHECKPOINT_SECONDS: u64 = 30;
+const K_COMPLETE_PENDING_INTERVAL: u64 = 1600;
+const K_REFRESH_INTERVAL: u64 = 64;
 
 const K_NANOS_PER_SECOND: usize = 1000000000;
-
-const kMaxKey: u64 = 268435456;
-const kRunSeconds: u64 = 360;
-const kCheckpointSeconds: u64 = 30;
 
 pub enum Operation {
     Read,
@@ -49,7 +43,7 @@ pub fn read_upsert5050(key: usize) -> Operation {
     }
 }
 
-pub fn rmw_100(key: usize) -> Operation {
+pub fn rmw_100(_key: usize) -> Operation {
     Operation::Rmw
 }
 
@@ -83,9 +77,9 @@ pub fn populate_store(store: &Arc<FasterKv>, keys: &Arc<Vec<u64>>, num_threads: 
             let _session = store.start_session();
             let mut i = idx.fetch_add(1, Ordering::SeqCst) as u64;
             while i < ops {
-                if i % kRefreshInterval == 0 {
+                if i % K_REFRESH_INTERVAL == 0 {
                     store.refresh();
-                    if i % kCompletePendingInterval == 0 {
+                    if i % K_COMPLETE_PENDING_INTERVAL == 0 {
                         store.complete_pending(false);
                     }
                 }
@@ -121,9 +115,9 @@ where
     let _session = store.start_session();
     let mut i = idx.fetch_add(1, Ordering::SeqCst);
     while i < ops {
-        if i as u64 % kRefreshInterval == 0 {
+        if i as u64 % K_REFRESH_INTERVAL == 0 {
             store.refresh();
-            if i as u64 % kCompletePendingInterval == 0 {
+            if i as u64 % K_COMPLETE_PENDING_INTERVAL == 0 {
                 store.complete_pending(false);
             }
         }
@@ -179,7 +173,8 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
     }
     let mut last_checkpoint = Instant::now();
     while shared_idx.load(Ordering::Relaxed) < keys.len() {
-        if Instant::now().duration_since(last_checkpoint) > Duration::from_secs(kCheckpointSeconds)
+        if Instant::now().duration_since(last_checkpoint)
+            > Duration::from_secs(K_CHECKPOINT_SECONDS)
         {
             store.checkpoint();
             last_checkpoint = Instant::now();

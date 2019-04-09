@@ -53,15 +53,19 @@ pub fn rmw_100(key: usize) -> Operation {
     Operation::Rmw
 }
 
-pub fn load_file_into_memory(file: &str) -> Vec<u64> {
+pub fn load_file_into_memory(file: &str, limit: usize) -> Vec<u64> {
     let file = File::open(file).expect("Unable to open file for reading keys");
     let mut keys = Vec::new();
 
     let reader = BufReader::new(file);
     for line in reader.lines().map(|l| l.unwrap()) {
-        match line.parse::<u64>() {
-            Ok(key) => keys.push(key),
-            Err(_e) => eprintln!("Unable to parse {} as u64", line),
+        if keys.len() < limit {
+            match line.parse::<u64>() {
+                Ok(key) => keys.push(key),
+                Err(_e) => eprintln!("Unable to parse {} as u64", line),
+            }
+        } else {
+            break;
         }
     }
     keys

@@ -14,6 +14,8 @@ const K_REFRESH_INTERVAL: u64 = 64;
 
 const K_NANOS_PER_SECOND: usize = 1000000000;
 
+const K_THREAD_STACK_SIZE: usize = 4 * 1024 * 1024;
+
 pub enum Operation {
     Read,
     Upsert,
@@ -109,54 +111,58 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
         let store = Arc::clone(&store);
         let keys = Arc::clone(&keys);
         let idx = Arc::clone(&idx);
-        threads.push(std::thread::spawn(move || {
-            let mut reads = 0;
-            let mut upserts = 0;
-            let mut rmws = 0;
+        threads.push(
+            std::thread::Builder::new()
+                .stack_size(K_THREAD_STACK_SIZE)
+                .spawn(move || {
+                    let mut reads = 0;
+                    let mut upserts = 0;
+                    let mut rmws = 0;
 
-            let ops = keys.len();
+                    let ops = keys.len();
 
-            let start = Instant::now();
-            let _session = store.start_session();
-            let mut i = idx.fetch_add(1, Ordering::SeqCst);
-            while i < ops {
-                if i as u64 % K_REFRESH_INTERVAL == 0 {
-                    store.refresh();
-                    if i as u64 % K_COMPLETE_PENDING_INTERVAL == 0 {
-                        store.complete_pending(false);
+                    let start = Instant::now();
+                    let _session = store.start_session();
+                    let mut i = idx.fetch_add(1, Ordering::SeqCst);
+                    while i < ops {
+                        if i as u64 % K_REFRESH_INTERVAL == 0 {
+                            store.refresh();
+                            if i as u64 % K_COMPLETE_PENDING_INTERVAL == 0 {
+                                store.complete_pending(false);
+                            }
+                        }
+                        match op_allocator(i) {
+                            Operation::Read => {
+                                store.read::<i32>(*keys.get(i).unwrap(), 1);
+                                reads += 1;
+                            }
+                            Operation::Upsert => {
+                                store.upsert(*keys.get(i).unwrap(), &42, 1);
+                                upserts += 1;
+                            }
+                            Operation::Rmw => {
+                                store.rmw(*keys.get(i).unwrap(), &5, 1);
+                                rmws += 1;
+                            }
+                        }
+                        i = idx.fetch_add(1, Ordering::SeqCst);
                     }
-                }
-                match op_allocator(i) {
-                    Operation::Read => {
-                        store.read::<i32>(*keys.get(i).unwrap(), 1);
-                        reads += 1;
-                    }
-                    Operation::Upsert => {
-                        store.upsert(*keys.get(i).unwrap(), &42, 1);
-                        upserts += 1;
-                    }
-                    Operation::Rmw => {
-                        store.rmw(*keys.get(i).unwrap(), &5, 1);
-                        rmws += 1;
-                    }
-                }
-                i = idx.fetch_add(1, Ordering::SeqCst);
-            }
-            store.complete_pending(true);
-            store.stop_session();
-            let duration = Instant::now().duration_since(start);
+                    store.complete_pending(true);
+                    store.stop_session();
+                    let duration = Instant::now().duration_since(start);
 
-            println!(
-                "Thread {} completed {} reads, {} upserts and {} rmws in {}ms",
-                thread_id,
-                reads,
-                upserts,
-                rmws,
-                duration.as_millis()
-            );
+                    println!(
+                        "Thread {} completed {} reads, {} upserts and {} rmws in {}ms",
+                        thread_id,
+                        reads,
+                        upserts,
+                        rmws,
+                        duration.as_millis()
+                    );
 
-            (reads, upserts, rmws, duration.as_nanos())
-        }))
+                    (reads, upserts, rmws, duration.as_nanos())
+                }).unwrap(),
+        )
     }
     let mut last_checkpoint = Instant::now();
     while idx.load(Ordering::Relaxed) < keys.len() {

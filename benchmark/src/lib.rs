@@ -4,13 +4,14 @@ use faster_kvs::FasterKv;
 use regex::Regex;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const K_CHECKPOINT_SECONDS: u64 = 30;
 const K_COMPLETE_PENDING_INTERVAL: u64 = 1600;
 const K_REFRESH_INTERVAL: u64 = 64;
+const K_RUN_TIME: u64 = 360;
 
 const K_NANOS_PER_SECOND: usize = 1000000000;
 
@@ -105,12 +106,14 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
 ) {
     let idx = Arc::new(AtomicUsize::new(0));
     let mut total_counts = (0, 0, 0, 0);
+    let done = Arc::new(AtomicBool::new(false));
 
     let mut threads = vec![];
     for thread_id in 0..num_threads {
         let store = Arc::clone(&store);
         let keys = Arc::clone(&keys);
         let idx = Arc::clone(&idx);
+        let done = Arc::clone(&done);
         threads.push(
             std::thread::Builder::new()
                 .stack_size(K_THREAD_STACK_SIZE)
@@ -124,7 +127,7 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
                     let start = Instant::now();
                     let _session = store.start_session();
                     let mut i = idx.fetch_add(1, Ordering::SeqCst);
-                    while i < ops {
+                    while i < ops && !done.load(Ordering::Relaxed) {
                         if i as u64 % K_REFRESH_INTERVAL == 0 {
                             store.refresh();
                             if i as u64 % K_COMPLETE_PENDING_INTERVAL == 0 {
@@ -161,16 +164,21 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
                     );
 
                     (reads, upserts, rmws, duration.as_nanos())
-                }).unwrap(),
+                })
+                .unwrap(),
         )
     }
     let mut last_checkpoint = Instant::now();
+    let start = last_checkpoint.clone();
     while idx.load(Ordering::Relaxed) < keys.len() {
         if Instant::now().duration_since(last_checkpoint)
             > Duration::from_secs(K_CHECKPOINT_SECONDS)
         {
             store.checkpoint();
             last_checkpoint = Instant::now();
+        }
+        if Instant::now().duration_since(start) > Duration::from_secs(K_RUN_TIME) {
+            done.store(true, Ordering::Relaxed)
         }
         std::thread::sleep(Duration::from_secs(1));
     }

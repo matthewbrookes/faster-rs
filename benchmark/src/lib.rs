@@ -4,6 +4,7 @@ use faster_kvs::FasterKv;
 use regex::Regex;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::prelude::FileExt;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -12,6 +13,10 @@ const K_CHECKPOINT_SECONDS: u64 = 30;
 const K_COMPLETE_PENDING_INTERVAL: u64 = 1600;
 const K_REFRESH_INTERVAL: u64 = 64;
 const K_RUN_TIME: u64 = 360;
+const K_CHUNK_SIZE: u64 = 3200;
+const K_FILE_CHUNK_SIZE: usize = 131072;
+const K_INIT_COUNT: usize = 250000000;
+const K_TXN_COUNT: usize = 1000000000;
 
 const K_NANOS_PER_SECOND: usize = 1000000000;
 
@@ -66,6 +71,64 @@ pub fn load_file_into_memory(file: &str, limit: usize) -> Vec<u64> {
         }
     }
     keys
+}
+
+pub fn load_files(load_file: &str, run_file: &str) -> (Vec<u64>, Vec<u64>) {
+    let load_file = File::open(load_file).expect("Unable to open load file");
+    let run_file = File::open(run_file).expect("Unable to open run file");
+
+    let mut buffer = [0; K_FILE_CHUNK_SIZE];
+    let mut count = 0;
+    let mut offset = 0;
+
+    let mut init_keys = Vec::with_capacity(K_INIT_COUNT);
+
+    println!("Loading keys into memory");
+    loop {
+        let bytes_read = load_file.read_at(&mut buffer, offset).unwrap();
+        for i in 0..(bytes_read / 8) {
+            let mut num = [0; 8];
+            num.copy_from_slice(&buffer[i..i + 8]);
+            init_keys.insert(count, u64::from_be_bytes(num));
+            count += 1;
+        }
+        if bytes_read == K_FILE_CHUNK_SIZE {
+            offset += K_FILE_CHUNK_SIZE as u64;
+        } else {
+            break;
+        }
+    }
+    if K_INIT_COUNT != count {
+        panic!("Init file load fail!");
+    }
+    println!("Loaded {} keys", count);
+
+    let mut count = 0;
+    let mut offset = 0;
+
+    let mut run_keys = Vec::with_capacity(K_TXN_COUNT);
+
+    println!("Loading txns into memory");
+    loop {
+        let bytes_read = run_file.read_at(&mut buffer, offset).unwrap();
+        for i in 0..(bytes_read / 8) {
+            let mut num = [0; 8];
+            num.copy_from_slice(&buffer[i..i + 8]);
+            run_keys.insert(count, u64::from_be_bytes(num));
+            count += 1;
+        }
+        if bytes_read == K_FILE_CHUNK_SIZE {
+            offset += K_FILE_CHUNK_SIZE as u64;
+        } else {
+            break;
+        }
+    }
+    if K_TXN_COUNT != count {
+        panic!("Txn file load fail!");
+    }
+    println!("Loaded {} txns", count);
+
+    (init_keys, run_keys)
 }
 
 pub fn populate_store(store: &Arc<FasterKv>, keys: &Arc<Vec<u64>>, num_threads: u8) {

@@ -37,8 +37,8 @@ pub fn process_ycsb(input_file: &str, output_file: &str) {
     let reader = BufReader::new(input);
     for line in reader.lines().map(|l| l.unwrap()) {
         for cap in re.captures_iter(&line) {
-            output.write(&cap[1].as_bytes()).unwrap();
-            output.write(b"\n").unwrap();
+            let num: u64 = cap[1].parse().expect("Unable to parse uid");
+            output.write(&num.to_be_bytes()).unwrap();
         }
     }
 }
@@ -53,24 +53,6 @@ pub fn read_upsert5050(key: usize) -> Operation {
 
 pub fn rmw_100(_key: usize) -> Operation {
     Operation::Rmw
-}
-
-pub fn load_file_into_memory(file: &str, limit: usize) -> Vec<u64> {
-    let file = File::open(file).expect("Unable to open file for reading keys");
-    let mut keys = Vec::new();
-
-    let reader = BufReader::new(file);
-    for line in reader.lines().map(|l| l.unwrap()) {
-        if keys.len() < limit {
-            match line.parse::<u64>() {
-                Ok(key) => keys.push(key),
-                Err(_e) => eprintln!("Unable to parse {} as u64", line),
-            }
-        } else {
-            break;
-        }
-    }
-    keys
 }
 
 pub fn load_files(load_file: &str, run_file: &str) -> (Vec<u64>, Vec<u64>) {

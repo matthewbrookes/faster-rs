@@ -3,11 +3,8 @@ extern crate clap;
 use benchmark::*;
 use clap::{App, Arg, SubCommand};
 use faster_kvs::FasterKv;
-use std::fs::remove_dir;
+use std::fs::remove_dir_all;
 use std::sync::Arc;
-
-const K_INIT_COUNT: usize = 250000000;
-const K_TXN_COUNT: usize = 1000000000;
 
 fn main() {
     let matches = App::new("faster-rs Benchmark")
@@ -68,10 +65,10 @@ fn main() {
         let num_threads: u8 = num_threads
             .parse()
             .expect("num-threads argument must be integer");
-        let load_keys = matches
+        let load_keys_file = matches
             .value_of("load")
             .expect("File containing load transactions not specified");
-        let run_keys = matches
+        let run_keys_file = matches
             .value_of("run")
             .expect("File containing run transactions not specified");
         let workload = matches
@@ -87,16 +84,13 @@ fn main() {
         let log_size: u64 = 17179869184;
         let dir_path = String::from("benchmark_store");
         let store = Arc::new(FasterKv::new(table_size, log_size, dir_path.clone()).unwrap());
-        {
-            println!("Populating datastore");
-            let keys = Arc::new(load_file_into_memory(load_keys, K_INIT_COUNT));
-            populate_store(&store, &keys, num_threads);
-        }
-        {
-            println!("Beginning benchmark");
-            let keys = Arc::new(load_file_into_memory(run_keys, K_TXN_COUNT));
-            run_benchmark(&store, &keys, num_threads, op_allocator);
-        }
-        remove_dir(dir_path).expect("Unable to delete store");
+        let (load_keys, txn_keys) = load_files(load_keys_file, run_keys_file);
+        let load_keys = Arc::new(load_keys);
+        let txn_keys = Arc::new(txn_keys);
+        println!("Populating datastore");
+        populate_store(&store, &load_keys, num_threads);
+        println!("Beginning benchmark");
+        run_benchmark(&store, &txn_keys, num_threads, op_allocator);
+        remove_dir_all(dir_path).expect("Unable to delete store");
     }
 }

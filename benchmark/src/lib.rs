@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::prelude::FileExt;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 use std::time::{Duration, Instant};
 
 const K_CHECKPOINT_SECONDS: u64 = 30;
@@ -178,6 +178,7 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
     let topo = Arc::new(Mutex::new(Topology::new()));
     let idx = Arc::new(AtomicUsize::new(0));
     let done = Arc::new(AtomicBool::new(false));
+    let barrier = Arc::new(Barrier::new((num_threads + 1) as usize));
     let mut threads = vec![];
 
     for thread_id in 0..num_threads {
@@ -185,7 +186,8 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
         let keys = Arc::clone(&keys);
         let idx = Arc::clone(&idx);
         let done = Arc::clone(&done);
-        let child_topo = topo.clone();
+        let barrier = Arc::clone(&barrier);
+        let topo = Arc::clone(&topo);
 
         threads.push(
             std::thread::Builder::new()
@@ -194,7 +196,7 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
                     {
                         // Bind thread to core
                         let tid = unsafe { libc::pthread_self() };
-                        let mut locked_topo = child_topo.lock().unwrap();
+                        let mut locked_topo = topo.lock().unwrap();
                         let bind_to = cpuset_for_core(&*locked_topo, thread_id as usize);
                         locked_topo
                             .set_cpubind_for_thread(tid, bind_to, CPUBIND_THREAD)
@@ -205,9 +207,10 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
                     let mut upserts = 0;
                     let mut rmws = 0;
 
-                    let start = Instant::now();
                     let _session = store.start_session();
 
+                    barrier.wait();
+                    let start = Instant::now();
                     while !done.load(Ordering::SeqCst) {
                         let mut chunk_idx = idx.fetch_add(K_CHUNK_SIZE, Ordering::SeqCst);
                         while chunk_idx >= K_TXN_COUNT {
@@ -259,6 +262,7 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
         )
     }
 
+    barrier.wait();
     let start = Instant::now();
     let mut last_checkpoint = Instant::now();
     let mut num_checkpoints = 0;

@@ -1,12 +1,15 @@
+extern crate hwloc;
+extern crate libc;
 extern crate regex;
 
 use faster_kvs::FasterKv;
+use hwloc::{CpuSet, ObjectType, Topology, CPUBIND_THREAD};
 use regex::Regex;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::prelude::FileExt;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const K_CHECKPOINT_SECONDS: u64 = 30;
@@ -26,6 +29,14 @@ pub enum Operation {
     Read,
     Upsert,
     Rmw,
+}
+
+fn cpuset_for_core(topology: &Topology, idx: usize) -> CpuSet {
+    let cores = (*topology).objects_with_type(&ObjectType::Core).unwrap();
+    match cores.get(idx) {
+        Some(val) => val.cpuset().unwrap(),
+        None => panic!("No Core found with id {}", idx),
+    }
 }
 
 pub fn process_ycsb(input_file: &str, output_file: &str) {
@@ -114,13 +125,27 @@ pub fn load_files(load_file: &str, run_file: &str) -> (Vec<u64>, Vec<u64>) {
 }
 
 pub fn populate_store(store: &Arc<FasterKv>, keys: &Arc<Vec<u64>>, num_threads: u8) {
-    let mut threads = vec![];
+    let topo = Arc::new(Mutex::new(Topology::new()));
     let idx = Arc::new(AtomicUsize::new(0));
-    for _ in 0..num_threads {
+    let mut threads = vec![];
+
+    for thread_idx in 0..num_threads {
         let store = Arc::clone(store);
         let idx = Arc::clone(&idx);
         let keys = Arc::clone(&keys);
+        let child_topo = topo.clone();
+
         threads.push(std::thread::spawn(move || {
+            {
+                // Bind thread to core
+                let tid = unsafe { libc::pthread_self() };
+                let mut locked_topo = child_topo.lock().unwrap();
+                let bind_to = cpuset_for_core(&*locked_topo, thread_idx as usize);
+                locked_topo
+                    .set_cpubind_for_thread(tid, bind_to, CPUBIND_THREAD)
+                    .unwrap();
+            }
+
             let _session = store.start_session();
             let mut chunk_idx = idx.fetch_add(K_CHUNK_SIZE, Ordering::SeqCst);
             while chunk_idx < K_INIT_COUNT {
@@ -150,19 +175,32 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
     num_threads: u8,
     op_allocator: F,
 ) {
+    let topo = Arc::new(Mutex::new(Topology::new()));
     let idx = Arc::new(AtomicUsize::new(0));
     let done = Arc::new(AtomicBool::new(false));
-
     let mut threads = vec![];
+
     for thread_id in 0..num_threads {
         let store = Arc::clone(&store);
         let keys = Arc::clone(&keys);
         let idx = Arc::clone(&idx);
         let done = Arc::clone(&done);
+        let child_topo = topo.clone();
+
         threads.push(
             std::thread::Builder::new()
                 .stack_size(K_THREAD_STACK_SIZE)
                 .spawn(move || {
+                    {
+                        // Bind thread to core
+                        let tid = unsafe { libc::pthread_self() };
+                        let mut locked_topo = child_topo.lock().unwrap();
+                        let bind_to = cpuset_for_core(&*locked_topo, thread_id as usize);
+                        locked_topo
+                            .set_cpubind_for_thread(tid, bind_to, CPUBIND_THREAD)
+                            .unwrap();
+                    }
+
                     let mut reads = 0;
                     let mut upserts = 0;
                     let mut rmws = 0;
@@ -224,6 +262,7 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
     let start = Instant::now();
     let mut last_checkpoint = Instant::now();
     let mut num_checkpoints = 0;
+
     while Instant::now().duration_since(start).as_secs() < K_RUN_TIME {
         std::thread::sleep(Duration::from_secs(1));
         if Instant::now().duration_since(last_checkpoint).as_secs() > K_CHECKPOINT_SECONDS {
@@ -233,6 +272,7 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
             last_checkpoint = Instant::now();
         }
     }
+
     done.store(true, Ordering::SeqCst);
 
     let mut total_counts = (0, 0, 0, 0);

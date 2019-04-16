@@ -9,11 +9,11 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const K_CHECKPOINT_SECONDS: u64 = 30;
-const K_COMPLETE_PENDING_INTERVAL: u64 = 1600;
-const K_REFRESH_INTERVAL: u64 = 64;
+const K_CHECKPOINT_SECONDS: usize = 30;
+const K_COMPLETE_PENDING_INTERVAL: usize = 1600;
+const K_REFRESH_INTERVAL: usize = 64;
 const K_RUN_TIME: u64 = 360;
-const K_CHUNK_SIZE: u64 = 3200;
+const K_CHUNK_SIZE: usize = 3200;
 const K_FILE_CHUNK_SIZE: usize = 131072;
 const K_INIT_COUNT: usize = 250000000;
 const K_TXN_COUNT: usize = 1000000000;
@@ -115,7 +115,6 @@ pub fn load_files(load_file: &str, run_file: &str) -> (Vec<u64>, Vec<u64>) {
 
 pub fn populate_store(store: &Arc<FasterKv>, keys: &Arc<Vec<u64>>, num_threads: u8) {
     let mut threads = vec![];
-    let ops = keys.len() as u64;
     let idx = Arc::new(AtomicUsize::new(0));
     for _ in 0..num_threads {
         let store = Arc::clone(store);
@@ -123,16 +122,18 @@ pub fn populate_store(store: &Arc<FasterKv>, keys: &Arc<Vec<u64>>, num_threads: 
         let keys = Arc::clone(&keys);
         threads.push(std::thread::spawn(move || {
             let _session = store.start_session();
-            let mut i = idx.fetch_add(1, Ordering::SeqCst) as u64;
-            while i < ops {
-                if i % K_REFRESH_INTERVAL == 0 {
-                    store.refresh();
-                    if i % K_COMPLETE_PENDING_INTERVAL == 0 {
-                        store.complete_pending(false);
+            let mut chunk_idx = idx.fetch_add(K_CHUNK_SIZE, Ordering::SeqCst);
+            while chunk_idx < K_INIT_COUNT {
+                for i in chunk_idx..(chunk_idx + K_CHUNK_SIZE) {
+                    if i % K_REFRESH_INTERVAL == 0 {
+                        store.refresh();
+                        if i % K_COMPLETE_PENDING_INTERVAL == 0 {
+                            store.complete_pending(false);
+                        }
                     }
+                    store.upsert(*keys.get(i as usize).unwrap(), &42, i as u64);
                 }
-                store.upsert(*keys.get(i as usize).unwrap(), &42, i);
-                i = idx.fetch_add(1, Ordering::SeqCst) as u64;
+                chunk_idx = idx.fetch_add(K_CHUNK_SIZE, Ordering::SeqCst);
             }
             store.complete_pending(true);
             store.stop_session();
@@ -173,9 +174,9 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
                     let _session = store.start_session();
                     let mut i = idx.fetch_add(1, Ordering::SeqCst);
                     while i < ops && !done.load(Ordering::Relaxed) {
-                        if i as u64 % K_REFRESH_INTERVAL == 0 {
+                        if i % K_REFRESH_INTERVAL == 0 {
                             store.refresh();
-                            if i as u64 % K_COMPLETE_PENDING_INTERVAL == 0 {
+                            if i % K_COMPLETE_PENDING_INTERVAL == 0 {
                                 store.complete_pending(false);
                             }
                         }
@@ -217,7 +218,7 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
     let start = last_checkpoint.clone();
     while idx.load(Ordering::Relaxed) < keys.len() {
         if Instant::now().duration_since(last_checkpoint)
-            > Duration::from_secs(K_CHECKPOINT_SECONDS)
+            > Duration::from_secs(K_CHECKPOINT_SECONDS as u64)
         {
             store.checkpoint();
             last_checkpoint = Instant::now();

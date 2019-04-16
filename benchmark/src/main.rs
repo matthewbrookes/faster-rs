@@ -79,7 +79,7 @@ fn main() {
             _ => panic!("Unexpected workload specified. Options are: read_upsert_50_50, rmw_100"),
         };
 
-        let table_size: u64 = 1 << 14;
+        let table_size: u64 = 134217728;
         let log_size: u64 = 17179869184;
         let dir_path = String::from("benchmark_store");
         let store = Arc::new(FasterKv::new(table_size, log_size, dir_path.clone()).unwrap());

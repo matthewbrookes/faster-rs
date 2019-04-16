@@ -3,7 +3,6 @@ extern crate clap;
 use benchmark::*;
 use clap::{App, Arg, SubCommand};
 use faster_kvs::FasterKv;
-use std::fs::remove_dir_all;
 use std::sync::Arc;
 
 fn main() {
@@ -91,6 +90,9 @@ fn main() {
         populate_store(&store, &load_keys, num_threads);
         println!("Beginning benchmark");
         run_benchmark(&store, &txn_keys, num_threads, op_allocator);
-        remove_dir_all(dir_path).expect("Unable to delete store");
+        match store.clean_storage() {
+            Ok(_) => { /*no-op*/ }
+            Err(_) => eprintln!("Unable to clear storage"),
+        }
     }
 }

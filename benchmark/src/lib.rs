@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const K_CHECKPOINT_SECONDS: usize = 30;
+const K_CHECKPOINT_SECONDS: u64 = 30;
 const K_COMPLETE_PENDING_INTERVAL: usize = 1600;
 const K_REFRESH_INTERVAL: usize = 64;
 const K_RUN_TIME: u64 = 360;
@@ -151,7 +151,6 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
     op_allocator: F,
 ) {
     let idx = Arc::new(AtomicUsize::new(0));
-    let mut total_counts = (0, 0, 0, 0);
     let done = Arc::new(AtomicBool::new(false));
 
     let mut threads = vec![];
@@ -168,34 +167,41 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
                     let mut upserts = 0;
                     let mut rmws = 0;
 
-                    let ops = keys.len();
-
                     let start = Instant::now();
                     let _session = store.start_session();
-                    let mut i = idx.fetch_add(1, Ordering::SeqCst);
-                    while i < ops && !done.load(Ordering::Relaxed) {
-                        if i % K_REFRESH_INTERVAL == 0 {
-                            store.refresh();
-                            if i % K_COMPLETE_PENDING_INTERVAL == 0 {
-                                store.complete_pending(false);
+
+                    while !done.load(Ordering::SeqCst) {
+                        let mut chunk_idx = idx.fetch_add(K_CHUNK_SIZE, Ordering::SeqCst);
+                        while chunk_idx >= K_TXN_COUNT {
+                            if chunk_idx == K_TXN_COUNT {
+                                idx.store(0, Ordering::SeqCst);
+                            }
+                            chunk_idx = idx.fetch_add(K_CHUNK_SIZE, Ordering::SeqCst);
+                        }
+                        for i in chunk_idx..(chunk_idx + K_CHUNK_SIZE) {
+                            if i % K_REFRESH_INTERVAL == 0 {
+                                store.refresh();
+                                if i % K_COMPLETE_PENDING_INTERVAL == 0 {
+                                    store.complete_pending(false);
+                                }
+                            }
+                            match op_allocator(i) {
+                                Operation::Read => {
+                                    store.read::<i32>(*keys.get(i).unwrap(), 1);
+                                    reads += 1;
+                                }
+                                Operation::Upsert => {
+                                    store.upsert(*keys.get(i).unwrap(), &42, 1);
+                                    upserts += 1;
+                                }
+                                Operation::Rmw => {
+                                    store.rmw(*keys.get(i).unwrap(), &5, 1);
+                                    rmws += 1;
+                                }
                             }
                         }
-                        match op_allocator(i) {
-                            Operation::Read => {
-                                store.read::<i32>(*keys.get(i).unwrap(), 1);
-                                reads += 1;
-                            }
-                            Operation::Upsert => {
-                                store.upsert(*keys.get(i).unwrap(), &42, 1);
-                                upserts += 1;
-                            }
-                            Operation::Rmw => {
-                                store.rmw(*keys.get(i).unwrap(), &5, 1);
-                                rmws += 1;
-                            }
-                        }
-                        i = idx.fetch_add(1, Ordering::SeqCst);
                     }
+
                     store.complete_pending(true);
                     store.stop_session();
                     let duration = Instant::now().duration_since(start);
@@ -214,20 +220,22 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
                 .unwrap(),
         )
     }
+
+    let start = Instant::now();
     let mut last_checkpoint = Instant::now();
-    let start = last_checkpoint.clone();
-    while idx.load(Ordering::Relaxed) < keys.len() {
-        if Instant::now().duration_since(last_checkpoint)
-            > Duration::from_secs(K_CHECKPOINT_SECONDS as u64)
-        {
+    let mut num_checkpoints = 0;
+    while Instant::now().duration_since(start).as_secs() < K_RUN_TIME {
+        std::thread::sleep(Duration::from_secs(1));
+        if Instant::now().duration_since(last_checkpoint).as_secs() > K_CHECKPOINT_SECONDS {
+            println!("Checkpointing...");
             store.checkpoint();
+            num_checkpoints += 1;
             last_checkpoint = Instant::now();
         }
-        if Instant::now().duration_since(start) > Duration::from_secs(K_RUN_TIME) {
-            done.store(true, Ordering::Relaxed)
-        }
-        std::thread::sleep(Duration::from_secs(1));
     }
+    done.store(true, Ordering::SeqCst);
+
+    let mut total_counts = (0, 0, 0, 0);
     for t in threads {
         let (reads, upserts, rmws, duration) = t.join().expect("Something went wrong in a thread");
         total_counts.0 += reads;
@@ -237,7 +245,8 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
     }
 
     println!(
-        "Finished benchmark: {} reads, {} writes, {} rmws. {} ops/second/thread",
+        "Finished benchmark: {} checkpoints, {} reads, {} writes, {} rmws. {} ops/second/thread",
+        num_checkpoints,
         total_counts.0,
         total_counts.1,
         total_counts.2,

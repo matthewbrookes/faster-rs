@@ -16,7 +16,7 @@ extern fn read_callback(sender: *mut libc::c_void, value: u64, status: u32) {
     let boxed_sender = unsafe {Box::from_raw(sender as *mut Sender<u64>)};
     let sender = *boxed_sender;
     if status == status::OK.into() {
-        sender.send(value).unwrap();
+        sender.send(value);
     }
 }
 

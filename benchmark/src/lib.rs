@@ -160,7 +160,7 @@ pub fn populate_store(store: &Arc<FasterKv>, keys: &Arc<Vec<u64>>, num_threads: 
                             store.complete_pending(false);
                         }
                     }
-                    store.upsert(*keys.get(i as usize).unwrap(), &42, i as u64);
+                    store.upsert(*keys.get(i as usize).unwrap(), 42);
                 }
                 chunk_idx = idx.fetch_add(K_CHUNK_SIZE, Ordering::SeqCst);
             }
@@ -232,15 +232,15 @@ pub fn run_benchmark<F: Fn(usize) -> Operation + Send + Copy + 'static>(
                             }
                             match op_allocator(i) {
                                 Operation::Read => {
-                                    store.read::<i32>(*keys.get(i).unwrap(), 1);
+                                    store.read(*keys.get(i).unwrap());
                                     reads += 1;
                                 }
                                 Operation::Upsert => {
-                                    store.upsert(*keys.get(i).unwrap(), &42, 1);
+                                    store.upsert(*keys.get(i).unwrap(), 42);
                                     upserts += 1;
                                 }
                                 Operation::Rmw => {
-                                    store.rmw(*keys.get(i).unwrap(), &5, 1);
+                                    store.rmw(*keys.get(i).unwrap(), 5);
                                     rmws += 1;
                                 }
                             }

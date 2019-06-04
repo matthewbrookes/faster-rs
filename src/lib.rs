@@ -24,6 +24,15 @@ pub struct FasterKv {
     storage_dir: String,
 }
 
+impl Clone for FasterKv {
+    fn clone(&self) -> Self {
+        FasterKv {
+            faster_t: self.faster_t,
+            storage_dir: self.storage_dir.clone(),
+        }
+    }
+}
+
 impl FasterKv {
     pub fn new(
         table_size: u64,

@@ -32,3 +32,26 @@ fn insert_read_person() {
 
     assert!(store.size() > 0);
 }
+
+#[test]
+fn rmw_read_auction() {
+    let tmp_dir = TempDir::new().unwrap();
+    let dir_path = tmp_dir.path().to_string_lossy().into_owned();
+    let store = FasterKv::new_auctions_store(TABLE_SIZE, LOG_SIZE, dir_path).unwrap();
+    let key: u64 = 1;
+    for i in 0..100 {
+        store.rmw_auction(1, i, 1);
+    }
+    let (res, recv) = store.read_auctions(key, 1);
+    assert_eq!(res, status::OK);
+
+    let mut expected = 0;
+    for actual in recv.recv().unwrap() {
+        assert_eq!(expected, *actual);
+        expected += 1;
+    }
+
+    let (res, recv) = store.read_auctions(key + 1, 1);
+    assert_eq!(res, status::NOT_FOUND);
+    assert!(recv.recv().is_err());
+}

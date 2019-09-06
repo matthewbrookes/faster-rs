@@ -9,7 +9,7 @@ pub mod status;
 mod util;
 
 pub use crate::faster_error::FasterError;
-use crate::faster_traits::{read_callback, read_person_callback, rmw_callback};
+use crate::faster_traits::{read_callback, read_person_callback, read_auctions_callback, rmw_callback};
 pub use crate::faster_traits::{FasterKey, FasterRmw, FasterValue};
 use crate::util::*;
 
@@ -137,6 +137,25 @@ impl FasterKv {
         })
     }
 
+    pub fn new_auctions_store(
+        table_size: u64,
+        log_size: u64,
+        storage_name: String,
+    ) -> Result<FasterKv, io::Error> {
+        let saved_dir = storage_name.clone();
+        let storage_str = CString::new(storage_name).unwrap();
+        let ptr_raw = storage_str.into_raw();
+        let faster_t = unsafe {
+            let ft = ffi::faster_open_with_disk_auctions(table_size, log_size, ptr_raw);
+            let _ = CString::from_raw(ptr_raw); // retake pointer to free mem
+            ft
+        };
+        Ok(FasterKv {
+            faster_t: faster_t,
+            storage_dir: Some(saved_dir),
+        })
+    }
+
     pub fn upsert<K, V>(&self, key: &K, value: &V, monotonic_serial_number: u64) -> u8
     where
         K: FasterKey,
@@ -217,6 +236,21 @@ impl FasterKv {
         (status, receiver)
     }
 
+    pub fn read_auctions(&self, id: u64, monotonic_serial_number: u64) -> (u8, Receiver<&[u64]>) {
+        let (sender, receiver) = channel();
+        let sender_ptr: *mut Sender<&[u64]> = Box::into_raw(Box::new(sender));
+        let status = unsafe {
+            ffi::faster_read_auctions(
+                self.faster_t,
+                id,
+                monotonic_serial_number,
+                Some(read_auctions_callback),
+                sender_ptr as *mut libc::c_void,
+            )
+        };
+        (status, receiver)
+    }
+
     pub fn rmw<K, V>(&self, key: &K, value: &V, monotonic_serial_number: u64) -> u8
     where
         K: FasterKey,
@@ -256,6 +290,16 @@ impl FasterKv {
                 self.faster_t,
                 encoded_key_ptr,
                 encoded_key_length as u64,
+                monotonic_serial_number
+            )
+        }
+    }
+    pub fn rmw_auction(&self, key: u64, auction: u64, monotonic_serial_number: u64) -> u8 {
+        unsafe {
+            ffi::faster_rmw_auction(
+                self.faster_t,
+                key,
+                auction,
                 monotonic_serial_number
             )
         }

@@ -21,13 +21,26 @@ fn insert_read_person() {
         assert!((upsert == status::OK || upsert == status::PENDING) == true);
     }
 
-    let (read, recv) = store.read_person(key, 1);
-    assert_eq!(read, status::OK);
-    let person = recv.recv().unwrap();
-    unsafe {
-        assert_eq!(CStr::from_ptr(person.name).to_str(), Ok("name"));
-        assert_eq!(CStr::from_ptr(person.city).to_str(), Ok("city"));
-        assert_eq!(CStr::from_ptr(person.state).to_str(), Ok("state"));
+    {
+        let (read, recv) = store.read_person(key, 1);
+        assert_eq!(read, status::OK);
+        let person = recv.recv().unwrap();
+        unsafe {
+            assert_eq!(CStr::from_ptr(person.name).to_str(), Ok("name"));
+            assert_eq!(CStr::from_ptr(person.city).to_str(), Ok("city"));
+            assert_eq!(CStr::from_ptr(person.state).to_str(), Ok("state"));
+        }
+    }
+
+    {
+        let (read, recv) = store.read_person(key, 1);
+        assert_eq!(read, status::OK);
+        let person = recv.recv().unwrap();
+        unsafe {
+            assert_eq!(CStr::from_ptr(person.name).to_str(), Ok("name"));
+            assert_eq!(CStr::from_ptr(person.city).to_str(), Ok("city"));
+            assert_eq!(CStr::from_ptr(person.state).to_str(), Ok("state"));
+        }
     }
 
     assert!(store.size() > 0);

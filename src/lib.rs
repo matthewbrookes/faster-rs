@@ -21,6 +21,7 @@ use std::fs;
 use std::io;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::os::raw::c_void;
+use std::os::raw::c_char;
 
 pub struct FasterKv {
     faster_t: *mut ffi::faster_t,
@@ -88,6 +89,11 @@ impl FasterIterator {
 #[no_mangle]
 pub unsafe extern "C" fn deallocate_vec(vec: *mut u8, length: u64) {
     drop(Vec::from_raw_parts(vec, length as usize, length as usize));
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn deallocate_string(str: *mut c_char) {
+    CString::from_raw(str);
 }
 
 impl FasterKv {
@@ -184,8 +190,11 @@ impl FasterKv {
     pub fn upsert_person(&self, id: u64, name: &str, city: &str, state: &str, monotonic_serial_number: u64) -> u8 {
         let person = ffi::person {
             name: CString::new(name).unwrap().into_raw(),
+            name_length: name.len() + 1,
             city: CString::new(city).unwrap().into_raw(),
+            city_length: city.len() + 1,
             state: CString::new(state).unwrap().into_raw(),
+            state_length: state.len() + 1,
         };
         unsafe {
             ffi::faster_upsert_person(
@@ -221,9 +230,9 @@ impl FasterKv {
         (status, receiver)
     }
 
-    pub fn read_person(&self, id: u64, monotonic_serial_number: u64) -> (u8, Receiver<&Person>) {
+    pub fn read_person(&self, id: u64, monotonic_serial_number: u64) -> (u8, Receiver<Person>) {
         let (sender, receiver) = channel();
-        let sender_ptr: *mut Sender<&ffi::person> = Box::into_raw(Box::new(sender));
+        let sender_ptr: *mut Sender<ffi::person> = Box::into_raw(Box::new(sender));
         let status = unsafe {
             ffi::faster_read_person(
                 self.faster_t,

@@ -1,7 +1,7 @@
 extern crate faster_rs;
 extern crate tempfile;
 
-use faster_rs::{status, FasterKv};
+use faster_rs::{status, FasterKv, FasterIteratorRecord};
 use std::collections::HashSet;
 use std::sync::mpsc::Receiver;
 use tempfile::TempDir;
@@ -63,6 +63,37 @@ fn faster_delete_inserted_value() {
     let (res, recv): (u8, Receiver<u64>) = store.read(&key, 1);
     assert!(res == status::NOT_FOUND);
     assert!(recv.recv().is_err());
+}
+
+#[test]
+fn faster_iterate() {
+    let tmp_dir = TempDir::new().unwrap();
+    let dir_path = tmp_dir.path().to_string_lossy().into_owned();
+    let store = FasterKv::new(TABLE_SIZE, LOG_SIZE, dir_path).unwrap();
+
+    for i in 0..200 {
+        store.upsert(&i, &42, 1);
+    }
+
+    for i in 150..180 {
+        store.delete(&i, 1);
+    }
+
+    let iterator = store.get_iterator();
+    let mut result: FasterIteratorRecord<i32, i32> = iterator.get_next();
+    let mut expected_key = 0;
+    let expected_value = 42;
+    while result.status {
+        assert_eq!(expected_key, result.key.unwrap());
+        assert_eq!(expected_value, result.value.unwrap());
+        if expected_key == 149 {
+            expected_key = 180;
+        } else {
+            expected_key += 1;
+        }
+        result = iterator.get_next();
+    }
+
 }
 
 #[test]

@@ -18,10 +18,69 @@ use std::ffi::CString;
 use std::fs;
 use std::io;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::os::raw::c_void;
 
 pub struct FasterKv {
     faster_t: *mut ffi::faster_t,
     storage_dir: Option<String>,
+}
+
+pub struct FasterIteratorRecord<K, V> {
+    pub status: bool,
+    pub key: Option<K>,
+    pub value: Option<V>,
+    result: *mut ffi::faster_iterator_result,
+}
+
+impl<K, V> Drop for FasterIteratorRecord<K, V> {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::faster_iterator_result_destroy(self.result);
+        }
+    }
+}
+
+pub struct FasterIterator {
+    iterator: *mut c_void,
+    record: *mut c_void,
+}
+
+impl Drop for FasterIterator {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::faster_scan_in_memory_destroy(self.iterator);
+            ffi::faster_scan_in_memory_record_destroy(self.record);
+        }
+    }
+}
+
+impl FasterIterator {
+    pub fn get_next<K, V>(&self) -> FasterIteratorRecord<K, V>
+    where
+        K: FasterKey,
+        V: FasterValue
+    {
+        let result = unsafe {
+            ffi::faster_iterator_get_next(self.iterator, self.record)
+        };
+        let status = unsafe {(*result).status};
+        if !status {
+            return FasterIteratorRecord {
+                status,
+                key: None,
+                value: None,
+                result
+            }
+        }
+        let key = Some(bincode::deserialize(unsafe { std::slice::from_raw_parts((*result).key, (*result).key_length as usize) }).unwrap());
+        let value = Some(bincode::deserialize(unsafe { std::slice::from_raw_parts((*result).value, (*result).value_length as usize) }).unwrap());
+        FasterIteratorRecord {
+            status,
+            key,
+            value,
+            result
+        }
+    }
 }
 
 #[no_mangle]
@@ -147,6 +206,19 @@ impl FasterKv {
                 encoded_key_length as u64,
                 monotonic_serial_number
             )
+        }
+    }
+
+    pub fn get_iterator(&self) -> FasterIterator {
+        let iterator = unsafe {
+            ffi::faster_scan_in_memory_init(self.faster_t)
+        };
+        let record = unsafe {
+            ffi::faster_scan_in_memory_record_init()
+        };
+        FasterIterator {
+            iterator,
+            record,
         }
     }
 

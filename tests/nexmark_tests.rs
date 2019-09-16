@@ -142,3 +142,18 @@ fn u64_operations() {
         }
     }
 }
+
+#[test]
+fn pair_u64_operations() {
+
+    let tmp_dir = TempDir::new().unwrap();
+    let dir_path = tmp_dir.path().to_string_lossy().into_owned();
+    let store = FasterKv::new_u64_pair_store(TABLE_SIZE, LOG_SIZE, dir_path).unwrap();
+
+    store.upsert_u64_pair(1, (100, 200), 1);
+    store.rmw_u64_pair(1, (300, 800), 1);
+
+    let (res, recv) = store.read_u64_pair(1, 1);
+    assert_eq!(res, status::OK);
+    assert_eq!(recv.recv().unwrap(), (400, 1000));
+}

@@ -92,6 +92,11 @@ pub unsafe extern "C" fn deallocate_vec(vec: *mut u8, length: u64) {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn deallocate_u64_vec(vec: *mut u64, length: u64) {
+    drop(Vec::from_raw_parts(vec, length as usize, length as usize));
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn deallocate_string(str: *mut c_char) {
     CString::from_raw(str);
 }
@@ -201,6 +206,21 @@ impl FasterKv {
                 self.faster_t,
                 id,
                 person,
+                monotonic_serial_number
+            )
+        }
+    }
+
+    pub fn upsert_auctions(&self, id: u64, mut auctions: Vec<u64>, monotonic_serial_number: u64) -> u8 {
+        let ptr = auctions.as_mut_ptr();
+        let len = auctions.len() as u64;
+        std::mem::forget(auctions);
+        unsafe {
+            ffi::faster_upsert_auctions(
+                self.faster_t,
+                id,
+                ptr,
+                len,
                 monotonic_serial_number
             )
         }

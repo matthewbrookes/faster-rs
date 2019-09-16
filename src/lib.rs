@@ -139,6 +139,62 @@ impl FasterIteratorU64 {
     }
 }
 
+pub struct FasterIteratorRecordU64Pair {
+    pub status: bool,
+    pub key: u64,
+    pub left: u64,
+    pub right: u64,
+    result: *mut ffi::faster_iterator_result_u64_pair,
+}
+
+impl Drop for FasterIteratorRecordU64Pair {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::faster_iterator_result_destroy_u64_pair(self.result);
+        }
+    }
+}
+
+pub struct FasterIteratorU64Pair {
+    iterator: *mut c_void,
+    record: *mut c_void,
+}
+
+impl Drop for FasterIteratorU64Pair {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::faster_scan_in_memory_destroy_u64_pair(self.iterator);
+            ffi::faster_scan_in_memory_record_destroy_u64_pair(self.record);
+        }
+    }
+}
+
+impl FasterIteratorU64Pair {
+    pub fn get_next(&self) -> Option<FasterIteratorRecordU64Pair> {
+        unsafe {
+            let result =
+                ffi::faster_iterator_get_next_u64_pair(self.iterator, self.record);
+            let status = (*result).status;
+            if !status {
+                ffi::faster_iterator_result_destroy_u64_pair(result);
+                return None;
+            }
+            let key = (*result).key;
+            let left = (*result).left;
+            let right = (*result).right;
+            Some(
+                FasterIteratorRecordU64Pair {
+                    status,
+                    key,
+                    left,
+                    right,
+                    result
+                }
+            )
+        }
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn deallocate_vec(vec: *mut u8, length: u64) {
     drop(Vec::from_raw_parts(vec, length as usize, length as usize));
@@ -559,6 +615,19 @@ impl FasterKv {
             ffi::faster_scan_in_memory_record_init_u64()
         };
         FasterIteratorU64 {
+            iterator,
+            record,
+        }
+    }
+
+    pub fn get_iterator_u64_pair(&self) -> FasterIteratorU64Pair {
+        let iterator = unsafe {
+            ffi::faster_scan_in_memory_init_u64_pair(self.faster_t)
+        };
+        let record = unsafe {
+            ffi::faster_scan_in_memory_record_init_u64_pair()
+        };
+        FasterIteratorU64Pair {
             iterator,
             record,
         }

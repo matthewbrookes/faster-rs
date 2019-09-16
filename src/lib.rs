@@ -444,6 +444,17 @@ impl FasterKv {
         }
     }
 
+    pub fn rmw_decrease_u64(&self, key: u64, value: u64, monotonic_serial_number: u64) -> u8 {
+        unsafe {
+            ffi::faster_rmw_decrease_u64(
+                self.faster_t,
+                key,
+                value,
+                monotonic_serial_number
+            )
+        }
+    }
+
     pub fn delete<K>(&self, key: &K, monotonic_serial_number: u64) -> u8
     where
         K: FasterKey

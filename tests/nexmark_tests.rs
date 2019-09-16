@@ -55,6 +55,7 @@ fn rmw_read_auction() {
     for i in 0..100 {
         store.rmw_auction(1, i, 1);
     }
+    store.rmw_auctions(1, (100..200).collect(), 1);
     let (res, recv) = store.read_auctions(key, 1);
     assert_eq!(res, status::OK);
 

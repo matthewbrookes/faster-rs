@@ -347,6 +347,21 @@ impl FasterKv {
         }
     }
 
+    pub fn rmw_auctions(&self, key: u64, mut auctions: Vec<u64>, monotonic_serial_number: u64) -> u8 {
+        let ptr = auctions.as_mut_ptr();
+        let len = auctions.len() as u64;
+        std::mem::forget(auctions);
+        unsafe {
+            ffi::faster_rmw_auctions(
+                self.faster_t,
+                key,
+                ptr,
+                len,
+                monotonic_serial_number
+            )
+        }
+    }
+
     pub fn size(&self) -> u64 {
         unsafe { ffi::faster_size(self.faster_t) }
     }

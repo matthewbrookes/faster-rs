@@ -32,6 +32,20 @@ pub unsafe extern "C" fn read_callback<T>(
 }
 
 #[inline(always)]
+pub unsafe extern "C" fn read_person_callback(
+    sender: *mut libc::c_void,
+    person: *const ffi::person,
+    status: u32,
+) {
+    let boxed_sender = Box::from_raw(sender as *mut Sender<&ffi::person>);
+    let sender = *boxed_sender;
+    if status == status::OK.into() {
+        // TODO: log error
+        let _ = sender.send(&*person);
+    }
+}
+
+#[inline(always)]
 pub unsafe extern "C" fn rmw_callback<T>(
     current: *const u8,
     length_current: u64,

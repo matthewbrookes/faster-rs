@@ -9,9 +9,11 @@ pub mod status;
 mod util;
 
 pub use crate::faster_error::FasterError;
-use crate::faster_traits::{read_callback, rmw_callback};
+use crate::faster_traits::{read_callback, read_person_callback, rmw_callback};
 pub use crate::faster_traits::{FasterKey, FasterRmw, FasterValue};
 use crate::util::*;
+
+pub use ffi::person as Person;
 
 use std::ffi::CStr;
 use std::ffi::CString;
@@ -116,6 +118,25 @@ impl FasterKv {
         }
     }
 
+    pub fn new_person_store(
+        table_size: u64,
+        log_size: u64,
+        storage_name: String,
+    ) -> Result<FasterKv, io::Error> {
+        let saved_dir = storage_name.clone();
+        let storage_str = CString::new(storage_name).unwrap();
+        let ptr_raw = storage_str.into_raw();
+        let faster_t = unsafe {
+            let ft = ffi::faster_open_with_disk_people(table_size, log_size, ptr_raw);
+            let _ = CString::from_raw(ptr_raw); // retake pointer to free mem
+            ft
+        };
+        Ok(FasterKv {
+            faster_t: faster_t,
+            storage_dir: Some(saved_dir),
+        })
+    }
+
     pub fn upsert<K, V>(&self, key: &K, value: &V, monotonic_serial_number: u64) -> u8
     where
         K: FasterKey,
@@ -141,6 +162,22 @@ impl FasterKv {
         }
     }
 
+    pub fn upsert_person(&self, id: u64, name: &str, city: &str, state: &str, monotonic_serial_number: u64) -> u8 {
+        let person = ffi::person {
+            name: CString::new(name).unwrap().into_raw(),
+            city: CString::new(city).unwrap().into_raw(),
+            state: CString::new(state).unwrap().into_raw(),
+        };
+        unsafe {
+            ffi::faster_upsert_person(
+                self.faster_t,
+                id,
+                person,
+                monotonic_serial_number
+            )
+        }
+    }
+
     pub fn read<K, V>(&self, key: &K, monotonic_serial_number: u64) -> (u8, Receiver<V>)
     where
         K: FasterKey,
@@ -159,6 +196,21 @@ impl FasterKv {
                 encoded_key_length as u64,
                 monotonic_serial_number,
                 Some(read_callback::<V>),
+                sender_ptr as *mut libc::c_void,
+            )
+        };
+        (status, receiver)
+    }
+
+    pub fn read_person(&self, id: u64, monotonic_serial_number: u64) -> (u8, Receiver<&Person>) {
+        let (sender, receiver) = channel();
+        let sender_ptr: *mut Sender<&ffi::person> = Box::into_raw(Box::new(sender));
+        let status = unsafe {
+            ffi::faster_read_person(
+                self.faster_t,
+                id,
+                monotonic_serial_number,
+                Some(read_person_callback),
                 sender_ptr as *mut libc::c_void,
             )
         };

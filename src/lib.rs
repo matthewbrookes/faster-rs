@@ -116,28 +116,25 @@ impl Drop for FasterIteratorU64 {
 }
 
 impl FasterIteratorU64 {
-    pub fn get_next(&self) -> FasterIteratorRecordU64 {
-        let result = unsafe {
-            ffi::faster_iterator_get_next_u64(self.iterator, self.record)
-        };
-        let status = unsafe {(*result).status};
-        if !status {
-            return FasterIteratorRecordU64 {
-                status,
-                key: None,
-                value: None,
-                result
-            }
-        }
+    pub fn get_next(&self) -> Option<FasterIteratorRecordU64> {
         unsafe {
+            let result =
+                ffi::faster_iterator_get_next_u64(self.iterator, self.record);
+            let status = (*result).status;
+            if !status {
+                ffi::faster_iterator_result_destroy_u64(result);
+                return None;
+            }
             let key = Some((*result).key);
             let value = Some((*result).value);
-            FasterIteratorRecordU64 {
+            Some(
+                FasterIteratorRecordU64 {
                 status,
                 key,
                 value,
                 result
-            }
+                }
+            )
         }
     }
 }

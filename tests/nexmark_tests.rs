@@ -127,8 +127,7 @@ fn u64_operations() {
 
     let mut expected_key = 0;
     let iterator = store.get_iterator_u64();
-    let mut record = iterator.get_next();
-    while record.status {
+    while let Some(record) = iterator.get_next() {
         assert_eq!(expected_key, record.key.unwrap());
         if expected_key < 100 {
             assert_eq!(84, record.value.unwrap());
@@ -141,6 +140,5 @@ fn u64_operations() {
         } else {
             expected_key += 1;
         }
-        record = iterator.get_next();
     }
 }

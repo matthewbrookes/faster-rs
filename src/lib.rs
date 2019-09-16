@@ -9,7 +9,7 @@ pub mod status;
 mod util;
 
 pub use crate::faster_error::FasterError;
-use crate::faster_traits::{read_callback, read_person_callback, read_auctions_callback, rmw_callback};
+use crate::faster_traits::*;
 pub use crate::faster_traits::{FasterKey, FasterRmw, FasterValue};
 use crate::util::*;
 
@@ -82,6 +82,62 @@ impl FasterIterator {
             key,
             value,
             result
+        }
+    }
+}
+
+pub struct FasterIteratorRecordU64 {
+    pub status: bool,
+    pub key: Option<u64>,
+    pub value: Option<u64>,
+    result: *mut ffi::faster_iterator_result_u64,
+}
+
+impl Drop for FasterIteratorRecordU64 {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::faster_iterator_result_destroy_u64(self.result);
+        }
+    }
+}
+
+pub struct FasterIteratorU64 {
+    iterator: *mut c_void,
+    record: *mut c_void,
+}
+
+impl Drop for FasterIteratorU64 {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::faster_scan_in_memory_destroy_u64(self.iterator);
+            ffi::faster_scan_in_memory_record_destroy_u64(self.record);
+        }
+    }
+}
+
+impl FasterIteratorU64 {
+    pub fn get_next(&self) -> FasterIteratorRecordU64 {
+        let result = unsafe {
+            ffi::faster_iterator_get_next_u64(self.iterator, self.record)
+        };
+        let status = unsafe {(*result).status};
+        if !status {
+            return FasterIteratorRecordU64 {
+                status,
+                key: None,
+                value: None,
+                result
+            }
+        }
+        unsafe {
+            let key = Some((*result).key);
+            let value = Some((*result).value);
+            FasterIteratorRecordU64 {
+                status,
+                key,
+                value,
+                result
+            }
         }
     }
 }
@@ -167,6 +223,25 @@ impl FasterKv {
         })
     }
 
+    pub fn new_u64_store(
+        table_size: u64,
+        log_size: u64,
+        storage_name: String,
+    ) -> Result<FasterKv, io::Error> {
+        let saved_dir = storage_name.clone();
+        let storage_str = CString::new(storage_name).unwrap();
+        let ptr_raw = storage_str.into_raw();
+        let faster_t = unsafe {
+            let ft = ffi::faster_open_with_disk_u64(table_size, log_size, ptr_raw);
+            let _ = CString::from_raw(ptr_raw); // retake pointer to free mem
+            ft
+        };
+        Ok(FasterKv {
+            faster_t: faster_t,
+            storage_dir: Some(saved_dir),
+        })
+    }
+
     pub fn upsert<K, V>(&self, key: &K, value: &V, monotonic_serial_number: u64) -> u8
     where
         K: FasterKey,
@@ -226,6 +301,17 @@ impl FasterKv {
         }
     }
 
+    pub fn upsert_u64(&self, key: u64, value: u64, monotonic_serial_number: u64) -> u8 {
+        unsafe {
+            ffi::faster_upsert_u64(
+                self.faster_t,
+                key,
+                value,
+                monotonic_serial_number
+            )
+        }
+    }
+
     pub fn read<K, V>(&self, key: &K, monotonic_serial_number: u64) -> (u8, Receiver<V>)
     where
         K: FasterKey,
@@ -280,6 +366,21 @@ impl FasterKv {
         (status, receiver)
     }
 
+    pub fn read_u64(&self, key: u64, monotonic_serial_number: u64) -> (u8, Receiver<u64>) {
+        let (sender, receiver) = channel();
+        let sender_ptr: *mut Sender<u64> = Box::into_raw(Box::new(sender));
+        let status = unsafe {
+            ffi::faster_read_u64(
+                self.faster_t,
+                key,
+                monotonic_serial_number,
+                Some(read_u64_callback),
+                sender_ptr as *mut libc::c_void,
+            )
+        };
+        (status, receiver)
+    }
+
     pub fn rmw<K, V>(&self, key: &K, value: &V, monotonic_serial_number: u64) -> u8
     where
         K: FasterKey,
@@ -306,6 +407,43 @@ impl FasterKv {
         }
     }
 
+    pub fn rmw_auctions(&self, key: u64, mut auctions: Vec<u64>, monotonic_serial_number: u64) -> u8 {
+        let ptr = auctions.as_mut_ptr();
+        let len = auctions.len() as u64;
+        std::mem::forget(auctions);
+        unsafe {
+            ffi::faster_rmw_auctions(
+                self.faster_t,
+                key,
+                ptr,
+                len,
+                monotonic_serial_number
+            )
+        }
+    }
+
+    pub fn rmw_auction(&self, key: u64, auction: u64, monotonic_serial_number: u64) -> u8 {
+        unsafe {
+            ffi::faster_rmw_auction(
+                self.faster_t,
+                key,
+                auction,
+                monotonic_serial_number
+            )
+        }
+    }
+
+    pub fn rmw_u64(&self, key: u64, value: u64, monotonic_serial_number: u64) -> u8 {
+        unsafe {
+            ffi::faster_rmw_u64(
+                self.faster_t,
+                key,
+                value,
+                monotonic_serial_number
+            )
+        }
+    }
+
     pub fn delete<K>(&self, key: &K, monotonic_serial_number: u64) -> u8
     where
         K: FasterKey
@@ -323,12 +461,12 @@ impl FasterKv {
             )
         }
     }
-    pub fn rmw_auction(&self, key: u64, auction: u64, monotonic_serial_number: u64) -> u8 {
+
+    pub fn delete_u64(&self, key: u64, monotonic_serial_number: u64) -> u8 {
         unsafe {
-            ffi::faster_rmw_auction(
+            ffi::faster_delete_u64(
                 self.faster_t,
                 key,
-                auction,
                 monotonic_serial_number
             )
         }
@@ -347,18 +485,16 @@ impl FasterKv {
         }
     }
 
-    pub fn rmw_auctions(&self, key: u64, mut auctions: Vec<u64>, monotonic_serial_number: u64) -> u8 {
-        let ptr = auctions.as_mut_ptr();
-        let len = auctions.len() as u64;
-        std::mem::forget(auctions);
-        unsafe {
-            ffi::faster_rmw_auctions(
-                self.faster_t,
-                key,
-                ptr,
-                len,
-                monotonic_serial_number
-            )
+    pub fn get_iterator_u64(&self) -> FasterIteratorU64 {
+        let iterator = unsafe {
+            ffi::faster_scan_in_memory_init_u64(self.faster_t)
+        };
+        let record = unsafe {
+            ffi::faster_scan_in_memory_record_init_u64()
+        };
+        FasterIteratorU64 {
+            iterator,
+            record,
         }
     }
 

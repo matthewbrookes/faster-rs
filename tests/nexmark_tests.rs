@@ -1,7 +1,7 @@
 extern crate faster_rs;
 extern crate tempfile;
 
-use faster_rs::{status, FasterKv};
+use faster_rs::{status, FasterKv, FasterIterator};
 use std::collections::HashSet;
 use std::sync::mpsc::Receiver;
 use tempfile::TempDir;
@@ -86,5 +86,61 @@ fn insert_auctions() {
     for actual in recv.recv().unwrap() {
         assert_eq!(expected, *actual);
         expected += 1;
+    }
+}
+
+#[test]
+fn u64_operations() {
+    let tmp_dir = TempDir::new().unwrap();
+    let dir_path = tmp_dir.path().to_string_lossy().into_owned();
+    let store = FasterKv::new_u64_store(TABLE_SIZE, LOG_SIZE, dir_path).unwrap();
+
+    for i in 0..200 {
+        store.upsert_u64(i, 42, 1);
+    }
+
+    for i in 0..100 {
+        store.rmw_u64(i, 42, 1);
+    }
+
+    for i in 80..120 {
+        store.delete_u64(i, 1);
+    }
+
+    for i in 0..80 {
+        let (res, recv) = store.read_u64(i, 1);
+        assert_eq!(res, status::OK);
+        assert_eq!(recv.recv().unwrap(), 84);
+    }
+
+    for i in 80..120 {
+        let (res, recv) = store.read_u64(i, 1);
+        assert_eq!(res, status::NOT_FOUND);
+        assert!(recv.recv().is_err());
+    }
+
+    for i in 120..200 {
+        let (res, recv) = store.read_u64(i, 1);
+        assert_eq!(res, status::OK);
+        assert_eq!(recv.recv().unwrap(), 42);
+    }
+
+    let mut expected_key = 0;
+    let iterator = store.get_iterator_u64();
+    let mut record = iterator.get_next();
+    while record.status {
+        assert_eq!(expected_key, record.key.unwrap());
+        if expected_key < 100 {
+            assert_eq!(84, record.value.unwrap());
+        }
+        if expected_key >= 100 && expected_key < 200 {
+            assert_eq!(42, record.value.unwrap());
+        }
+        if expected_key == 79 {
+            expected_key = 120;
+        } else {
+            expected_key += 1;
+        }
+        record = iterator.get_next();
     }
 }

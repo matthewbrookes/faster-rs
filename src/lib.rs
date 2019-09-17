@@ -19,9 +19,9 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::fs;
 use std::io;
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::os::raw::c_void;
 use std::os::raw::c_char;
+use std::os::raw::c_void;
+use std::sync::mpsc::{channel, Receiver, Sender};
 
 pub struct FasterKv {
     faster_t: *mut ffi::faster_t,
@@ -61,27 +61,35 @@ impl FasterIterator {
     pub fn get_next<K, V>(&self) -> FasterIteratorRecord<K, V>
     where
         K: FasterKey,
-        V: FasterValue
+        V: FasterValue,
     {
-        let result = unsafe {
-            ffi::faster_iterator_get_next(self.iterator, self.record)
-        };
-        let status = unsafe {(*result).status};
+        let result = unsafe { ffi::faster_iterator_get_next(self.iterator, self.record) };
+        let status = unsafe { (*result).status };
         if !status {
             return FasterIteratorRecord {
                 status,
                 key: None,
                 value: None,
-                result
-            }
+                result,
+            };
         }
-        let key = Some(bincode::deserialize(unsafe { std::slice::from_raw_parts((*result).key, (*result).key_length as usize) }).unwrap());
-        let value = Some(bincode::deserialize(unsafe { std::slice::from_raw_parts((*result).value, (*result).value_length as usize) }).unwrap());
+        let key = Some(
+            bincode::deserialize(unsafe {
+                std::slice::from_raw_parts((*result).key, (*result).key_length as usize)
+            })
+            .unwrap(),
+        );
+        let value = Some(
+            bincode::deserialize(unsafe {
+                std::slice::from_raw_parts((*result).value, (*result).value_length as usize)
+            })
+            .unwrap(),
+        );
         FasterIteratorRecord {
             status,
             key,
             value,
-            result
+            result,
         }
     }
 }
@@ -118,8 +126,7 @@ impl Drop for FasterIteratorU64 {
 impl FasterIteratorU64 {
     pub fn get_next(&self) -> Option<FasterIteratorRecordU64> {
         unsafe {
-            let result =
-                ffi::faster_iterator_get_next_u64(self.iterator, self.record);
+            let result = ffi::faster_iterator_get_next_u64(self.iterator, self.record);
             let status = (*result).status;
             if !status {
                 ffi::faster_iterator_result_destroy_u64(result);
@@ -127,14 +134,12 @@ impl FasterIteratorU64 {
             }
             let key = Some((*result).key);
             let value = Some((*result).value);
-            Some(
-                FasterIteratorRecordU64 {
+            Some(FasterIteratorRecordU64 {
                 status,
                 key,
                 value,
-                result
-                }
-            )
+                result,
+            })
         }
     }
 }
@@ -172,8 +177,7 @@ impl Drop for FasterIteratorU64Pair {
 impl FasterIteratorU64Pair {
     pub fn get_next(&self) -> Option<FasterIteratorRecordU64Pair> {
         unsafe {
-            let result =
-                ffi::faster_iterator_get_next_u64_pair(self.iterator, self.record);
+            let result = ffi::faster_iterator_get_next_u64_pair(self.iterator, self.record);
             let status = (*result).status;
             if !status {
                 ffi::faster_iterator_result_destroy_u64_pair(result);
@@ -182,15 +186,13 @@ impl FasterIteratorU64Pair {
             let key = (*result).key;
             let left = (*result).left;
             let right = (*result).right;
-            Some(
-                FasterIteratorRecordU64Pair {
-                    status,
-                    key,
-                    left,
-                    right,
-                    result
-                }
-            )
+            Some(FasterIteratorRecordU64Pair {
+                status,
+                key,
+                left,
+                right,
+                result,
+            })
         }
     }
 }
@@ -358,7 +360,14 @@ impl FasterKv {
         }
     }
 
-    pub fn upsert_person(&self, id: u64, name: &str, city: &str, state: &str, monotonic_serial_number: u64) -> u8 {
+    pub fn upsert_person(
+        &self,
+        id: u64,
+        name: &str,
+        city: &str,
+        state: &str,
+        monotonic_serial_number: u64,
+    ) -> u8 {
         let person = ffi::person {
             name: CString::new(name).unwrap().into_raw(),
             name_length: name.len() + 1,
@@ -367,40 +376,23 @@ impl FasterKv {
             state: CString::new(state).unwrap().into_raw(),
             state_length: state.len() + 1,
         };
-        unsafe {
-            ffi::faster_upsert_person(
-                self.faster_t,
-                id,
-                person,
-                monotonic_serial_number
-            )
-        }
+        unsafe { ffi::faster_upsert_person(self.faster_t, id, person, monotonic_serial_number) }
     }
 
-    pub fn upsert_auctions(&self, id: u64, mut auctions: Vec<u64>, monotonic_serial_number: u64) -> u8 {
+    pub fn upsert_auctions(
+        &self,
+        id: u64,
+        mut auctions: Vec<u64>,
+        monotonic_serial_number: u64,
+    ) -> u8 {
         let ptr = auctions.as_mut_ptr();
         let len = auctions.len() as u64;
         std::mem::forget(auctions);
-        unsafe {
-            ffi::faster_upsert_auctions(
-                self.faster_t,
-                id,
-                ptr,
-                len,
-                monotonic_serial_number
-            )
-        }
+        unsafe { ffi::faster_upsert_auctions(self.faster_t, id, ptr, len, monotonic_serial_number) }
     }
 
     pub fn upsert_u64(&self, key: u64, value: u64, monotonic_serial_number: u64) -> u8 {
-        unsafe {
-            ffi::faster_upsert_u64(
-                self.faster_t,
-                key,
-                value,
-                monotonic_serial_number
-            )
-        }
+        unsafe { ffi::faster_upsert_u64(self.faster_t, key, value, monotonic_serial_number) }
     }
 
     pub fn upsert_u64_pair(&self, key: u64, value: (u64, u64), monotonic_serial_number: u64) -> u8 {
@@ -410,7 +402,7 @@ impl FasterKv {
                 key,
                 value.0,
                 value.1,
-                monotonic_serial_number
+                monotonic_serial_number,
             )
         }
     }
@@ -484,7 +476,11 @@ impl FasterKv {
         (status, receiver)
     }
 
-    pub fn read_u64_pair(&self, key: u64, monotonic_serial_number: u64) -> (u8, Receiver<(&mut u64, &mut u64)>) {
+    pub fn read_u64_pair(
+        &self,
+        key: u64,
+        monotonic_serial_number: u64,
+    ) -> (u8, Receiver<(&mut u64, &mut u64)>) {
         let (sender, receiver) = channel();
         let sender_ptr: *mut Sender<(&mut u64, &mut u64)> = Box::into_raw(Box::new(sender));
         let status = unsafe {
@@ -499,7 +495,11 @@ impl FasterKv {
         (status, receiver)
     }
 
-    pub fn read_ten_elements_average(&self, key: u64, monotonic_serial_number: u64) -> (u8, Receiver<usize>) {
+    pub fn read_ten_elements_average(
+        &self,
+        key: u64,
+        monotonic_serial_number: u64,
+    ) -> (u8, Receiver<usize>) {
         let (sender, receiver) = channel();
         let sender_ptr: *mut Sender<usize> = Box::into_raw(Box::new(sender));
         let status = unsafe {
@@ -540,52 +540,28 @@ impl FasterKv {
         }
     }
 
-    pub fn rmw_auctions(&self, key: u64, mut auctions: Vec<u64>, monotonic_serial_number: u64) -> u8 {
+    pub fn rmw_auctions(
+        &self,
+        key: u64,
+        mut auctions: Vec<u64>,
+        monotonic_serial_number: u64,
+    ) -> u8 {
         let ptr = auctions.as_mut_ptr();
         let len = auctions.len() as u64;
         std::mem::forget(auctions);
-        unsafe {
-            ffi::faster_rmw_auctions(
-                self.faster_t,
-                key,
-                ptr,
-                len,
-                monotonic_serial_number
-            )
-        }
+        unsafe { ffi::faster_rmw_auctions(self.faster_t, key, ptr, len, monotonic_serial_number) }
     }
 
     pub fn rmw_auction(&self, key: u64, auction: u64, monotonic_serial_number: u64) -> u8 {
-        unsafe {
-            ffi::faster_rmw_auction(
-                self.faster_t,
-                key,
-                auction,
-                monotonic_serial_number
-            )
-        }
+        unsafe { ffi::faster_rmw_auction(self.faster_t, key, auction, monotonic_serial_number) }
     }
 
     pub fn rmw_u64(&self, key: u64, value: u64, monotonic_serial_number: u64) -> u8 {
-        unsafe {
-            ffi::faster_rmw_u64(
-                self.faster_t,
-                key,
-                value,
-                monotonic_serial_number
-            )
-        }
+        unsafe { ffi::faster_rmw_u64(self.faster_t, key, value, monotonic_serial_number) }
     }
 
     pub fn rmw_decrease_u64(&self, key: u64, value: u64, monotonic_serial_number: u64) -> u8 {
-        unsafe {
-            ffi::faster_rmw_decrease_u64(
-                self.faster_t,
-                key,
-                value,
-                monotonic_serial_number
-            )
-        }
+        unsafe { ffi::faster_rmw_decrease_u64(self.faster_t, key, value, monotonic_serial_number) }
     }
 
     pub fn rmw_u64_pair(&self, key: u64, value: (u64, u64), monotonic_serial_number: u64) -> u8 {
@@ -595,25 +571,18 @@ impl FasterKv {
                 key,
                 value.0,
                 value.1,
-                monotonic_serial_number
+                monotonic_serial_number,
             )
         }
     }
 
     pub fn rmw_ten_elements(&self, key: u64, value: usize, monotonic_serial_number: u64) -> u8 {
-        unsafe {
-            ffi::faster_rmw_ten_elements(
-                self.faster_t,
-                key,
-                value,
-                monotonic_serial_number
-            )
-        }
+        unsafe { ffi::faster_rmw_ten_elements(self.faster_t, key, value, monotonic_serial_number) }
     }
 
     pub fn delete<K>(&self, key: &K, monotonic_serial_number: u64) -> u8
     where
-        K: FasterKey
+        K: FasterKey,
     {
         let mut encoded_key = bincode::serialize(key).unwrap();
         let encoded_key_length = encoded_key.len();
@@ -624,58 +593,31 @@ impl FasterKv {
                 self.faster_t,
                 encoded_key_ptr,
                 encoded_key_length as u64,
-                monotonic_serial_number
+                monotonic_serial_number,
             )
         }
     }
 
     pub fn delete_u64(&self, key: u64, monotonic_serial_number: u64) -> u8 {
-        unsafe {
-            ffi::faster_delete_u64(
-                self.faster_t,
-                key,
-                monotonic_serial_number
-            )
-        }
+        unsafe { ffi::faster_delete_u64(self.faster_t, key, monotonic_serial_number) }
     }
 
     pub fn get_iterator(&self) -> FasterIterator {
-        let iterator = unsafe {
-            ffi::faster_scan_in_memory_init(self.faster_t)
-        };
-        let record = unsafe {
-            ffi::faster_scan_in_memory_record_init()
-        };
-        FasterIterator {
-            iterator,
-            record,
-        }
+        let iterator = unsafe { ffi::faster_scan_in_memory_init(self.faster_t) };
+        let record = unsafe { ffi::faster_scan_in_memory_record_init() };
+        FasterIterator { iterator, record }
     }
 
     pub fn get_iterator_u64(&self) -> FasterIteratorU64 {
-        let iterator = unsafe {
-            ffi::faster_scan_in_memory_init_u64(self.faster_t)
-        };
-        let record = unsafe {
-            ffi::faster_scan_in_memory_record_init_u64()
-        };
-        FasterIteratorU64 {
-            iterator,
-            record,
-        }
+        let iterator = unsafe { ffi::faster_scan_in_memory_init_u64(self.faster_t) };
+        let record = unsafe { ffi::faster_scan_in_memory_record_init_u64() };
+        FasterIteratorU64 { iterator, record }
     }
 
     pub fn get_iterator_u64_pair(&self) -> FasterIteratorU64Pair {
-        let iterator = unsafe {
-            ffi::faster_scan_in_memory_init_u64_pair(self.faster_t)
-        };
-        let record = unsafe {
-            ffi::faster_scan_in_memory_record_init_u64_pair()
-        };
-        FasterIteratorU64Pair {
-            iterator,
-            record,
-        }
+        let iterator = unsafe { ffi::faster_scan_in_memory_init_u64_pair(self.faster_t) };
+        let record = unsafe { ffi::faster_scan_in_memory_record_init_u64_pair() };
+        FasterIteratorU64Pair { iterator, record }
     }
 
     pub fn size(&self) -> u64 {

@@ -1,7 +1,7 @@
 extern crate faster_rs;
 extern crate tempfile;
 
-use faster_rs::{status, FasterKv, FasterIteratorRecord};
+use faster_rs::{status, FasterIteratorRecord, FasterKv};
 use std::collections::HashSet;
 use std::sync::mpsc::Receiver;
 use tempfile::TempDir;
@@ -93,7 +93,6 @@ fn faster_iterate() {
         }
         result = iterator.get_next();
     }
-
 }
 
 #[test]

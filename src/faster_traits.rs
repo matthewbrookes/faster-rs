@@ -61,11 +61,7 @@ pub unsafe extern "C" fn read_auctions_callback(
 }
 
 #[inline(always)]
-pub unsafe extern "C" fn read_u64_callback(
-    sender: *mut libc::c_void,
-    value: u64,
-    status: u32,
-) {
+pub unsafe extern "C" fn read_u64_callback(sender: *mut libc::c_void, value: u64, status: u32) {
     let boxed_sender = Box::from_raw(sender as *mut Sender<u64>);
     let sender = *boxed_sender;
     if status == status::OK.into() {
@@ -90,11 +86,7 @@ pub unsafe extern "C" fn read_u64_pair_callback(
 }
 
 #[inline(always)]
-pub unsafe extern "C" fn read_usize_callback(
-    sender: *mut libc::c_void,
-    value: usize,
-    status: u32,
-) {
+pub unsafe extern "C" fn read_usize_callback(sender: *mut libc::c_void, value: usize, status: u32) {
     let boxed_sender = Box::from_raw(sender as *mut Sender<usize>);
     let sender = *boxed_sender;
     if status == status::OK.into() {

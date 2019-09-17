@@ -1,11 +1,11 @@
 extern crate faster_rs;
 extern crate tempfile;
 
-use faster_rs::{status, FasterKv, FasterIterator};
+use faster_rs::{status, FasterIterator, FasterKv};
 use std::collections::HashSet;
+use std::ffi::CStr;
 use std::sync::mpsc::Receiver;
 use tempfile::TempDir;
-use std::ffi::CStr;
 
 const TABLE_SIZE: u64 = 1 << 14;
 const LOG_SIZE: u64 = 17179869184;
@@ -145,7 +145,6 @@ fn u64_operations() {
 
 #[test]
 fn pair_u64_operations() {
-
     let tmp_dir = TempDir::new().unwrap();
     let dir_path = tmp_dir.path().to_string_lossy().into_owned();
     let store = FasterKv::new_u64_pair_store(TABLE_SIZE, LOG_SIZE, dir_path).unwrap();

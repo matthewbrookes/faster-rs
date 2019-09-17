@@ -90,6 +90,20 @@ pub unsafe extern "C" fn read_u64_pair_callback(
 }
 
 #[inline(always)]
+pub unsafe extern "C" fn read_usize_callback(
+    sender: *mut libc::c_void,
+    value: usize,
+    status: u32,
+) {
+    let boxed_sender = Box::from_raw(sender as *mut Sender<usize>);
+    let sender = *boxed_sender;
+    if status == status::OK.into() {
+        // TODO: log error
+        let _ = sender.send(value);
+    }
+}
+
+#[inline(always)]
 pub unsafe extern "C" fn rmw_callback<T>(
     current: *const u8,
     length_current: u64,

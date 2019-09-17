@@ -158,3 +158,26 @@ fn pair_u64_operations() {
     let (left, right) = recv.recv().unwrap();
     assert_eq!((*left, *right), (400, 1000));
 }
+
+#[test]
+fn ten_elements_operations() {
+    let tmp_dir = TempDir::new().unwrap();
+    let dir_path = tmp_dir.path().to_string_lossy().into_owned();
+    let store = FasterKv::new_ten_elements_store(TABLE_SIZE, LOG_SIZE, dir_path).unwrap();
+
+    for i in 0..5 {
+        store.rmw_ten_elements(1, i, 1);
+    }
+
+    let (res, recv) = store.read_ten_elements_average(1, 1);
+    assert_eq!(res, status::OK);
+    assert_eq!(recv.recv().unwrap(), 2);
+
+    for i in 5..15 {
+        store.rmw_ten_elements(1, i, 1);
+    }
+
+    let (res, recv) = store.read_ten_elements_average(1, 1);
+    assert_eq!(res, status::OK);
+    assert_eq!(recv.recv().unwrap(), 9);
+}

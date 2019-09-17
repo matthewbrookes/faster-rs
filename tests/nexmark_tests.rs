@@ -155,5 +155,6 @@ fn pair_u64_operations() {
 
     let (res, recv) = store.read_u64_pair(1, 1);
     assert_eq!(res, status::OK);
-    assert_eq!(recv.recv().unwrap(), (400, 1000));
+    let (left, right) = recv.recv().unwrap();
+    assert_eq!((*left, *right), (400, 1000));
 }

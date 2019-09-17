@@ -465,9 +465,9 @@ impl FasterKv {
         (status, receiver)
     }
 
-    pub fn read_u64_pair(&self, key: u64, monotonic_serial_number: u64) -> (u8, Receiver<(u64, u64)>) {
+    pub fn read_u64_pair(&self, key: u64, monotonic_serial_number: u64) -> (u8, Receiver<(&mut u64, &mut u64)>) {
         let (sender, receiver) = channel();
-        let sender_ptr: *mut Sender<(u64, u64)> = Box::into_raw(Box::new(sender));
+        let sender_ptr: *mut Sender<(&mut u64, &mut u64)> = Box::into_raw(Box::new(sender));
         let status = unsafe {
             ffi::faster_read_u64_pair(
                 self.faster_t,

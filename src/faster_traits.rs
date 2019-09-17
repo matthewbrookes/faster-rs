@@ -77,15 +77,15 @@ pub unsafe extern "C" fn read_u64_callback(
 #[inline(always)]
 pub unsafe extern "C" fn read_u64_pair_callback(
     sender: *mut libc::c_void,
-    left: u64,
-    right: u64,
+    left: *mut u64,
+    right: *mut u64,
     status: u32,
 ) {
-    let boxed_sender = Box::from_raw(sender as *mut Sender<(u64, u64)>);
+    let boxed_sender = Box::from_raw(sender as *mut Sender<(&mut u64, &mut u64)>);
     let sender = *boxed_sender;
     if status == status::OK.into() {
         // TODO: log error
-        let _ = sender.send((left, right));
+        let _ = sender.send((left.as_mut().unwrap(), right.as_mut().unwrap()));
     }
 }
 

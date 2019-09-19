@@ -180,3 +180,22 @@ fn ten_elements_operations() {
     assert_eq!(res, status::OK);
     assert_eq!(recv.recv().unwrap(), 9);
 }
+
+#[test]
+fn auction_bids_operations() {
+    let tmp_dir = TempDir::new().unwrap();
+    let dir_path = tmp_dir.path().to_string_lossy().into_owned();
+    let store = FasterKv::new_auction_bids_store(TABLE_SIZE, LOG_SIZE, dir_path).unwrap();
+    store.rmw_auction_bids_bid(1, 17397249374, 1000, 1);
+    let (res, recv) = store.read_auction_bids(1, 1);
+    assert_eq!(res, status::OK);
+    let (auction, bids) = recv.recv().unwrap();
+    assert!(auction.is_none());
+    store.rmw_auction_bids_auction(1, 1000, 17637826823, 1819898989, 200, 1);
+    store.rmw_auction_bids_bid(1, 37397249374, 2000, 1);
+    let (res, recv) = store.read_auction_bids(1, 1);
+    assert_eq!(res, status::OK);
+    let (auction, bids) = recv.recv().unwrap();
+    assert!(auction.is_some());
+    assert_eq!(2, bids.len());
+}

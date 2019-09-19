@@ -96,6 +96,30 @@ pub unsafe extern "C" fn read_usize_callback(sender: *mut libc::c_void, value: u
 }
 
 #[inline(always)]
+pub unsafe extern "C" fn read_auction_bids_callback(
+    sender: *mut libc::c_void,
+    auction: *const ffi::auction_t,
+    bids: *mut ffi::bid_t,
+    bids_length: usize,
+    status: u32,
+) {
+    let boxed_sender =
+        Box::from_raw(sender as *mut Sender<(Option<ffi::auction_t>, &mut [ffi::bid_t])>);
+    let sender = *boxed_sender;
+    if status == status::OK.into() {
+        // TODO: log error
+        let option_auction = match (*auction).id {
+            0 => None,
+            _ => Some(*auction),
+        };
+        let _ = sender.send((
+            option_auction,
+            std::slice::from_raw_parts_mut(bids, bids_length),
+        ));
+    }
+}
+
+#[inline(always)]
 pub unsafe extern "C" fn rmw_callback<T>(
     current: *const u8,
     length_current: u64,

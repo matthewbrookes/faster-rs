@@ -13,6 +13,8 @@ use crate::faster_traits::*;
 pub use crate::faster_traits::{FasterKey, FasterRmw, FasterValue};
 use crate::util::*;
 
+pub use ffi::auction as Auction;
+pub use ffi::bid as Bid;
 pub use ffi::person as Person;
 
 use std::ffi::CStr;
@@ -335,6 +337,25 @@ impl FasterKv {
         })
     }
 
+    pub fn new_auction_bids_store(
+        table_size: u64,
+        log_size: u64,
+        storage_name: String,
+    ) -> Result<FasterKv, io::Error> {
+        let saved_dir = storage_name.clone();
+        let storage_str = CString::new(storage_name).unwrap();
+        let ptr_raw = storage_str.into_raw();
+        let faster_t = unsafe {
+            let ft = ffi::faster_open_with_disk_auction_bids(table_size, log_size, ptr_raw);
+            let _ = CString::from_raw(ptr_raw); // retake pointer to free mem
+            ft
+        };
+        Ok(FasterKv {
+            faster_t: faster_t,
+            storage_dir: Some(saved_dir),
+        })
+    }
+
     pub fn upsert<K, V>(&self, key: &K, value: &V, monotonic_serial_number: u64) -> u8
     where
         K: FasterKey,
@@ -514,6 +535,25 @@ impl FasterKv {
         (status, receiver)
     }
 
+    pub fn read_auction_bids(
+        &self,
+        key: u64,
+        monotonic_serial_number: u64,
+    ) -> (u8, Receiver<(Option<ffi::auction_t>, &mut [ffi::bid_t])>) {
+        let (sender, receiver) = channel();
+        let sender_ptr = Box::into_raw(Box::new(sender));
+        let status = unsafe {
+            ffi::faster_read_auction_bids(
+                self.faster_t,
+                key,
+                monotonic_serial_number,
+                Some(read_auction_bids_callback),
+                sender_ptr as *mut libc::c_void,
+            )
+        };
+        (status, receiver)
+    }
+
     pub fn rmw<K, V>(&self, key: &K, value: &V, monotonic_serial_number: u64) -> u8
     where
         K: FasterKey,
@@ -578,6 +618,51 @@ impl FasterKv {
 
     pub fn rmw_ten_elements(&self, key: u64, value: usize, monotonic_serial_number: u64) -> u8 {
         unsafe { ffi::faster_rmw_ten_elements(self.faster_t, key, value, monotonic_serial_number) }
+    }
+
+    pub fn rmw_auction_bids_auction(
+        &self,
+        key: u64,
+        id: usize,
+        category: usize,
+        date_time: usize,
+        expires: usize,
+        reserve: usize,
+        monotonic_serial_number: u64,
+    ) -> u8 {
+        let auction_t = ffi::auction_t {
+            id,
+            category,
+            date_time,
+            expires,
+            reserve,
+        };
+        unsafe {
+            ffi::faster_rmw_auction_bids_auction(
+                self.faster_t,
+                key,
+                auction_t,
+                monotonic_serial_number,
+            )
+        }
+    }
+
+    pub fn rmw_auction_bids_bid(
+        &self,
+        key: u64,
+        date_time: usize,
+        price: usize,
+        bidder: usize,
+        monotonic_serial_number: u64,
+    ) -> u8 {
+        let bid_t = ffi::bid_t {
+            date_time,
+            bidder,
+            price,
+        };
+        unsafe {
+            ffi::faster_rmw_auction_bids_bid(self.faster_t, key, bid_t, monotonic_serial_number)
+        }
     }
 
     pub fn delete<K>(&self, key: &K, monotonic_serial_number: u64) -> u8

@@ -687,6 +687,14 @@ impl FasterKv {
         unsafe { ffi::faster_delete_u64(self.faster_t, key, monotonic_serial_number) }
     }
 
+    pub fn delete_auctions(&self, key: u64, monotonic_serial_number: u64) -> u8 {
+        unsafe { ffi::faster_delete_auctions(self.faster_t, key, monotonic_serial_number) }
+    }
+
+    pub fn delete_auction_bids(&self, key: u64, monotonic_serial_number: u64) -> u8 {
+        unsafe { ffi::faster_delete_auction_bids(self.faster_t, key, monotonic_serial_number) }
+    }
+
     pub fn get_iterator(&self) -> FasterIterator {
         let iterator = unsafe { ffi::faster_scan_in_memory_init(self.faster_t) };
         let record = unsafe { ffi::faster_scan_in_memory_record_init() };

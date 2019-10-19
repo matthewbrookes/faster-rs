@@ -299,6 +299,25 @@ impl FasterKv {
         })
     }
 
+    pub fn new_u64_composite_store(
+        table_size: u64,
+        log_size: u64,
+        storage_name: String,
+    ) -> Result<FasterKv, io::Error> {
+        let saved_dir = storage_name.clone();
+        let storage_str = CString::new(storage_name).unwrap();
+        let ptr_raw = storage_str.into_raw();
+        let faster_t = unsafe {
+            let ft = ffi::faster_open_with_disk_composite_u64(table_size, log_size, ptr_raw);
+            let _ = CString::from_raw(ptr_raw); // retake pointer to free mem
+            ft
+        };
+        Ok(FasterKv {
+            faster_t: faster_t,
+            storage_dir: Some(saved_dir),
+        })
+    }
+
     pub fn new_u64_pair_store(
         table_size: u64,
         log_size: u64,
@@ -497,6 +516,22 @@ impl FasterKv {
         (status, receiver)
     }
 
+    pub fn read_u64_composite(&self, key: (u64, u64), monotonic_serial_number: u64) -> (u8, Receiver<u64>) {
+        let (sender, receiver) = channel();
+        let sender_ptr: *mut Sender<u64> = Box::into_raw(Box::new(sender));
+        let status = unsafe {
+            ffi::faster_read_u64_composite(
+                self.faster_t,
+                key.0,
+                key.1,
+                monotonic_serial_number,
+                Some(read_u64_callback),
+                sender_ptr as *mut libc::c_void,
+            )
+        };
+        (status, receiver)
+    }
+
     pub fn read_u64_pair(
         &self,
         key: u64,
@@ -604,6 +639,10 @@ impl FasterKv {
         unsafe { ffi::faster_rmw_decrease_u64(self.faster_t, key, value, monotonic_serial_number) }
     }
 
+    pub fn rmw_u64_composite(&self, key: (u64, u64), value: u64, monotonic_serial_number: u64) -> u8 {
+        unsafe { ffi::faster_rmw_composite_u64(self.faster_t, key.0, key.1, value, monotonic_serial_number) }
+    }
+
     pub fn rmw_u64_pair(&self, key: u64, value: (u64, u64), monotonic_serial_number: u64) -> u8 {
         unsafe {
             ffi::faster_rmw_u64_pair(
@@ -685,6 +724,10 @@ impl FasterKv {
 
     pub fn delete_u64(&self, key: u64, monotonic_serial_number: u64) -> u8 {
         unsafe { ffi::faster_delete_u64(self.faster_t, key, monotonic_serial_number) }
+    }
+
+    pub fn delete_u64_composite(&self, key: (u64, u64), monotonic_serial_number: u64) -> u8 {
+        unsafe { ffi::faster_delete_u64_composite(self.faster_t, key.0, key.1, monotonic_serial_number) }
     }
 
     pub fn delete_auctions(&self, key: u64, monotonic_serial_number: u64) -> u8 {

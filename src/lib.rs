@@ -210,6 +210,11 @@ pub unsafe extern "C" fn deallocate_u64_vec(vec: *mut u64, length: u64) {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn deallocate_tuple_vec(vec: *mut ffi::tuple_t, length: u64) {
+    drop(Vec::from_raw_parts(vec, length as usize, length as usize));
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn deallocate_string(str: *mut c_char) {
     CString::from_raw(str);
 }
@@ -271,6 +276,25 @@ impl FasterKv {
         let ptr_raw = storage_str.into_raw();
         let faster_t = unsafe {
             let ft = ffi::faster_open_with_disk_auctions(table_size, log_size, ptr_raw);
+            let _ = CString::from_raw(ptr_raw); // retake pointer to free mem
+            ft
+        };
+        Ok(FasterKv {
+            faster_t: faster_t,
+            storage_dir: Some(saved_dir),
+        })
+    }
+
+    pub fn new_u64_pairs_store(
+        table_size: u64,
+        log_size: u64,
+        storage_name: String,
+    ) -> Result<FasterKv, io::Error> {
+        let saved_dir = storage_name.clone();
+        let storage_str = CString::new(storage_name).unwrap();
+        let ptr_raw = storage_str.into_raw();
+        let faster_t = unsafe {
+            let ft = ffi::faster_open_with_disk_u64_pairs(table_size, log_size, ptr_raw);
             let _ = CString::from_raw(ptr_raw); // retake pointer to free mem
             ft
         };
@@ -431,6 +455,27 @@ impl FasterKv {
         unsafe { ffi::faster_upsert_auctions(self.faster_t, id, ptr, len, monotonic_serial_number) }
     }
 
+    pub fn upsert_u64_pairs(
+        &self,
+        id: u64,
+        mut auctions: Vec<(usize, usize)>,
+        monotonic_serial_number: u64,
+    ) -> u8 {
+        let mut auctions: Vec<ffi::tuple_t> = auctions
+            .iter()
+            .map(|x| ffi::tuple_t {
+                left: x.0,
+                right: x.1,
+            })
+            .collect();
+        let ptr = auctions.as_mut_ptr();
+        let len = auctions.len() as u64;
+        std::mem::forget(auctions);
+        unsafe {
+            ffi::faster_upsert_u64_pairs(self.faster_t, id, ptr, len, monotonic_serial_number)
+        }
+    }
+
     pub fn upsert_u64(&self, key: u64, value: u64, monotonic_serial_number: u64) -> u8 {
         unsafe { ffi::faster_upsert_u64(self.faster_t, key, value, monotonic_serial_number) }
     }
@@ -501,6 +546,25 @@ impl FasterKv {
         (status, receiver)
     }
 
+    pub fn read_u64_pairs(
+        &self,
+        id: u64,
+        monotonic_serial_number: u64,
+    ) -> (u8, Receiver<Vec<(usize, usize)>>) {
+        let (sender, receiver) = channel();
+        let sender_ptr: *mut Sender<Vec<(usize, usize)>> = Box::into_raw(Box::new(sender));
+        let status = unsafe {
+            ffi::faster_read_u64_pairs(
+                self.faster_t,
+                id,
+                monotonic_serial_number,
+                Some(read_u64_pairs_callback),
+                sender_ptr as *mut libc::c_void,
+            )
+        };
+        (status, receiver)
+    }
+
     pub fn read_u64(&self, key: u64, monotonic_serial_number: u64) -> (u8, Receiver<u64>) {
         let (sender, receiver) = channel();
         let sender_ptr: *mut Sender<u64> = Box::into_raw(Box::new(sender));
@@ -516,7 +580,11 @@ impl FasterKv {
         (status, receiver)
     }
 
-    pub fn read_u64_composite(&self, key: (u64, u64), monotonic_serial_number: u64) -> (u8, Receiver<u64>) {
+    pub fn read_u64_composite(
+        &self,
+        key: (u64, u64),
+        monotonic_serial_number: u64,
+    ) -> (u8, Receiver<u64>) {
         let (sender, receiver) = channel();
         let sender_ptr: *mut Sender<u64> = Box::into_raw(Box::new(sender));
         let status = unsafe {
@@ -627,6 +695,25 @@ impl FasterKv {
         unsafe { ffi::faster_rmw_auctions(self.faster_t, key, ptr, len, monotonic_serial_number) }
     }
 
+    pub fn rmw_u64_pairs(
+        &self,
+        key: u64,
+        mut auctions: Vec<(usize, usize)>,
+        monotonic_serial_number: u64,
+    ) -> u8 {
+        let mut auctions: Vec<ffi::tuple_t> = auctions
+            .iter()
+            .map(|x| ffi::tuple_t {
+                left: x.0,
+                right: x.1,
+            })
+            .collect();
+        let ptr = auctions.as_mut_ptr();
+        let len = auctions.len() as u64;
+        std::mem::forget(auctions);
+        unsafe { ffi::faster_rmw_u64_pairs(self.faster_t, key, ptr, len, monotonic_serial_number) }
+    }
+
     pub fn rmw_auction(&self, key: u64, auction: u64, monotonic_serial_number: u64) -> u8 {
         unsafe { ffi::faster_rmw_auction(self.faster_t, key, auction, monotonic_serial_number) }
     }
@@ -639,8 +726,21 @@ impl FasterKv {
         unsafe { ffi::faster_rmw_decrease_u64(self.faster_t, key, value, monotonic_serial_number) }
     }
 
-    pub fn rmw_u64_composite(&self, key: (u64, u64), value: u64, monotonic_serial_number: u64) -> u8 {
-        unsafe { ffi::faster_rmw_composite_u64(self.faster_t, key.0, key.1, value, monotonic_serial_number) }
+    pub fn rmw_u64_composite(
+        &self,
+        key: (u64, u64),
+        value: u64,
+        monotonic_serial_number: u64,
+    ) -> u8 {
+        unsafe {
+            ffi::faster_rmw_composite_u64(
+                self.faster_t,
+                key.0,
+                key.1,
+                value,
+                monotonic_serial_number,
+            )
+        }
     }
 
     pub fn rmw_u64_pair(&self, key: u64, value: (u64, u64), monotonic_serial_number: u64) -> u8 {
@@ -727,11 +827,17 @@ impl FasterKv {
     }
 
     pub fn delete_u64_composite(&self, key: (u64, u64), monotonic_serial_number: u64) -> u8 {
-        unsafe { ffi::faster_delete_u64_composite(self.faster_t, key.0, key.1, monotonic_serial_number) }
+        unsafe {
+            ffi::faster_delete_u64_composite(self.faster_t, key.0, key.1, monotonic_serial_number)
+        }
     }
 
     pub fn delete_auctions(&self, key: u64, monotonic_serial_number: u64) -> u8 {
         unsafe { ffi::faster_delete_auctions(self.faster_t, key, monotonic_serial_number) }
+    }
+
+    pub fn delete_u64_pairs(&self, key: u64, monotonic_serial_number: u64) -> u8 {
+        unsafe { ffi::faster_delete_u64_pairs(self.faster_t, key, monotonic_serial_number) }
     }
 
     pub fn delete_auction_bids(&self, key: u64, monotonic_serial_number: u64) -> u8 {

@@ -61,6 +61,26 @@ pub unsafe extern "C" fn read_auctions_callback(
 }
 
 #[inline(always)]
+pub unsafe extern "C" fn read_u64_pairs_callback(
+    sender: *mut libc::c_void,
+    buffer: *const ffi::tuple_t,
+    length: u64,
+    status: u32,
+) {
+    let boxed_sender = Box::from_raw(sender as *mut Sender<Vec<(usize, usize)>>);
+    let sender = *boxed_sender;
+    if status == status::OK.into() {
+        // TODO: log error
+        let _ = sender.send(
+            std::slice::from_raw_parts(buffer, length as usize)
+                .iter()
+                .map(|x: &ffi::tuple_t| (x.left, x.right))
+                .collect(),
+        );
+    }
+}
+
+#[inline(always)]
 pub unsafe extern "C" fn read_u64_callback(sender: *mut libc::c_void, value: u64, status: u32) {
     let boxed_sender = Box::from_raw(sender as *mut Sender<u64>);
     let sender = *boxed_sender;

@@ -7,7 +7,7 @@ use std::sync::mpsc::Receiver;
 use tempfile::TempDir;
 
 const TABLE_SIZE: u64 = 1 << 14;
-const LOG_SIZE: u64 = 17179869184;
+const LOG_SIZE: u64 = 1024*1024*1024;
 
 #[test]
 fn faster_check() {

@@ -8,7 +8,7 @@ use std::sync::mpsc::Receiver;
 use tempfile::TempDir;
 
 const TABLE_SIZE: u64 = 1 << 14;
-const LOG_SIZE: u64 = 17179869184;
+const LOG_SIZE: u64 = 1024*1024*1024;
 
 #[test]
 fn insert_read_person() {
@@ -186,13 +186,13 @@ fn auction_bids_operations() {
     let tmp_dir = TempDir::new().unwrap();
     let dir_path = tmp_dir.path().to_string_lossy().into_owned();
     let store = FasterKv::new_auction_bids_store(TABLE_SIZE, LOG_SIZE, dir_path).unwrap();
-    store.rmw_auction_bids_bid(1, 17397249374, 1000, 1);
+    store.rmw_auction_bids_bid(1, 17397249374, 1000, 123, 1);
     let (res, recv) = store.read_auction_bids(1, 1);
     assert_eq!(res, status::OK);
     let (auction, bids) = recv.recv().unwrap();
     assert!(auction.is_none());
-    store.rmw_auction_bids_auction(1, 1000, 17637826823, 1819898989, 200, 1);
-    store.rmw_auction_bids_bid(1, 37397249374, 2000, 1);
+    store.rmw_auction_bids_auction(1, 1000, 10, 17637826823, 1819898989, 200, 1);
+    store.rmw_auction_bids_bid(1, 37397249374, 2000, 123, 1);
     let (res, recv) = store.read_auction_bids(1, 1);
     assert_eq!(res, status::OK);
     let (auction, bids) = recv.recv().unwrap();

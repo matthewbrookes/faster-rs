@@ -7,7 +7,7 @@ use tempfile::TempDir;
 #[test]
 fn single_checkpoint() {
     let table_size: u64 = 1 << 14;
-    let log_size: u64 = 17179869184;
+    let log_size: u64 = 1024*1024*1024;
     let tmp_dir = TempDir::new().unwrap();
     let dir_path = tmp_dir.path().to_string_lossy().into_owned();
     let store = FasterKv::new(table_size, log_size, dir_path).unwrap();
@@ -25,7 +25,7 @@ fn single_checkpoint() {
 #[test]
 fn single_checkpoint_index() {
     let table_size: u64 = 1 << 14;
-    let log_size: u64 = 17179869184;
+    let log_size: u64 = 1024*1024*1024;
     let tmp_dir = TempDir::new().unwrap();
     let dir_path = tmp_dir.path().to_string_lossy().into_owned();
     let store = FasterKv::new(table_size, log_size, dir_path).unwrap();
@@ -43,7 +43,7 @@ fn single_checkpoint_index() {
 #[test]
 fn single_checkpoint_hybrid_log() {
     let table_size: u64 = 1 << 14;
-    let log_size: u64 = 17179869184;
+    let log_size: u64 = 1024*1024*1024;
     let tmp_dir = TempDir::new().unwrap();
     let dir_path = tmp_dir.path().to_string_lossy().into_owned();
     let store = FasterKv::new(table_size, log_size, dir_path).unwrap();
@@ -66,7 +66,7 @@ fn concurrent_checkpoints() {
 #[test]
 fn in_memory_checkpoint_errors() {
     let table_size: u64 = 1 << 14;
-    let log_size: u64 = 17179869184;
+    let log_size: u64 = 1024*1024*1024;
     let store = FasterKv::new_in_memory(table_size, log_size);
     let value: u64 = 100;
 
@@ -85,7 +85,7 @@ fn in_memory_checkpoint_errors() {
 #[test]
 fn in_memory_checkpoint_index_errors() {
     let table_size: u64 = 1 << 14;
-    let log_size: u64 = 17179869184;
+    let log_size: u64 = 1024*1024*1024;
     let store = FasterKv::new_in_memory(table_size, log_size);
     let value: u64 = 100;
 
@@ -104,7 +104,7 @@ fn in_memory_checkpoint_index_errors() {
 #[test]
 fn in_memory_checkpoint_hybrid_log_errors() {
     let table_size: u64 = 1 << 14;
-    let log_size: u64 = 17179869184;
+    let log_size: u64 = 1024*1024*1024;
     let store = FasterKv::new_in_memory(table_size, log_size);
     let value: u64 = 100;
 

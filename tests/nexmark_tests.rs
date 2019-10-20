@@ -77,7 +77,7 @@ fn insert_auctions() {
     let store = FasterKv::new_auctions_store(TABLE_SIZE, LOG_SIZE, dir_path).unwrap();
     let key: u64 = 1;
     let auctions: Vec<u64> = (0..100).collect();
-    store.upsert_auctions(key, auctions, 1);
+    store.rmw_auctions(key, auctions, 1);
 
     let (res, recv) = store.read_auctions(key, 1);
     assert_eq!(res, status::OK);

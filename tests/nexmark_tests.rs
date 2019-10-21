@@ -199,3 +199,30 @@ fn auction_bids_operations() {
     assert!(auction.is_some());
     assert_eq!(2, bids.len());
 }
+
+#[test]
+fn u64_pairs_operations() {
+    let tmp_dir = TempDir::new().unwrap();
+    let dir_path = tmp_dir.path().to_string_lossy().into_owned();
+    let store = FasterKv::new_u64_pairs_store(TABLE_SIZE, LOG_SIZE, dir_path).unwrap();
+    store.rmw_u64_pairs(1, vec![(1,2),(2,3),(3,4)], 1);
+    let (res, recv) = store.read_u64_pairs(1, 1);
+    assert_eq!(res, status::OK);
+    assert_eq!(recv.recv().unwrap(), vec![(1,2),(2,3),(3,4)]);
+    store.rmw_u64_pairs(1, vec![(4,5),(5,6),(6,7)], 1);
+    let (res, recv) = store.read_u64_pairs(1, 1);
+    assert_eq!(res, status::OK);
+    assert_eq!(recv.recv().unwrap(), vec![(1,2),(2,3),(3,4),(4,5),(5,6),(6,7)]);
+    store.rmw_u64_pairs(1, vec![(7,8),(8,9)], 1);
+    let (res, recv) = store.read_u64_pairs(1, 1);
+    assert_eq!(res, status::OK);
+    assert_eq!(recv.recv().unwrap(), vec![(1,2),(2,3),(3,4),(4,5),(5,6),(6,7),(7,8),(8,9)]);
+    store.upsert_u64_pairs(1, vec![(1,2),(2,3),(3,4)], 1);
+    let (res, recv) = store.read_u64_pairs(1, 1);
+    assert_eq!(res, status::OK);
+    assert_eq!(recv.recv().unwrap(), vec![(1,2),(2,3),(3,4)]);
+    store.upsert_u64_pairs(1, vec![(1,2),(2,3),(3,4),(4,5),(5,6),(6,7),(7,8),(8,9)], 1);
+    let (res, recv) = store.read_u64_pairs(1, 1);
+    assert_eq!(res, status::OK);
+    assert_eq!(recv.recv().unwrap(), vec![(1,2),(2,3),(3,4),(4,5),(5,6),(6,7),(7,8),(8,9)]);
+}
